@@ -80,6 +80,7 @@ export function LobbyPage() {
 
   const me = room.players.find((player) => player.profile.id === profile.id);
   const isHost = room.hostId === profile.id;
+  const missingPlayers = room.settings.maxPlayers - room.players.length;
   const allReady = room.players.length === room.settings.maxPlayers && room.players.every((player) => player.ready);
 
   const refresh = (next: GameRoom) => { updateRoom(next); setRoom(next); };
@@ -132,7 +133,7 @@ export function LobbyPage() {
     }
   };
   const copyInvite = async () => {
-    const invite = `${window.location.origin}/perfil?next=/sala/${room.code}`;
+    const invite = `${window.location.origin}/entrar?code=${encodeURIComponent(room.code)}`;
     try { await navigator.clipboard.writeText(invite); setCopied(true); setTimeout(() => setCopied(false), 1800); }
     catch { setError("Não foi possível copiar automaticamente."); }
   };
@@ -168,7 +169,7 @@ export function LobbyPage() {
           </aside>
         </div>
         {error && <div className="floating-error" role="alert">{error}</div>}
-        {isHost && <div className="start-dock"><div><strong>{allReady ? "A tripulação está pronta" : "Aguardando a tripulação"}</strong><small>{allReady ? "A ilha foi gerada e aguarda sua ordem." : "Preencha os assentos e confirme a prontidão."}</small></div><button className="button button--primary" type="button" disabled={!allReady} onClick={() => void start()}><Play /> Iniciar partida</button></div>}
+        {isHost && <div className="start-dock"><div><strong>{allReady ? "A tripulação está pronta" : missingPlayers > 0 ? `Faltam ${missingPlayers} ${missingPlayers === 1 ? "jogador" : "jogadores"}` : "Aguardando a prontidão"}</strong><small>{allReady ? "A ilha foi gerada e aguarda sua ordem." : missingPlayers > 0 ? `Esta sala começa com ${room.settings.maxPlayers} jogadores.` : "Todos precisam marcar que estão prontos."}</small></div><button className="button button--primary" type="button" disabled={!allReady} onClick={() => void start()}><Play /> Iniciar partida</button></div>}
       </main>
     </AppShell>
   );
