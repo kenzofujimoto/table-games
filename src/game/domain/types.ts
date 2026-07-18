@@ -36,6 +36,8 @@ export interface Player {
     cities: number;
   };
   developmentCards: DevelopmentCard[];
+  resourceCardCount?: number;
+  developmentCardCount?: number;
   playedKnights: number;
   revealedVictoryPoints: number;
 }
