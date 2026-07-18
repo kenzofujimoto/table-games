@@ -101,4 +101,36 @@ describe("local room repository", () => {
     expect(listener).toHaveBeenCalledWith({ kind: "game", roomCode: "ABC234" });
     unsubscribe();
   });
+
+  it("handles missing, malformed and invalid room operations explicitly", async () => {
+    const storage = new MemoryStorage();
+    storage.setItem("auren:rooms:v1", "{malformed");
+    const repository = new LocalGameRepository({ storage, random: () => 0.5 });
+    await expect(repository.getRoom("NONE23")).resolves.toBeNull();
+    await expect(repository.loadGame("missing-game")).resolves.toBeNull();
+    await expect(repository.createRoom({ name: "x", host: profiles[0]!, settings })).rejects.toThrow("Room name");
+    await expect(repository.joinRoom("NONE23", profiles[1]!)).rejects.toThrow("Room was not found");
+    await expect(repository.setReady("NONE23", "p1", true)).rejects.toThrow("Room was not found");
+
+    const room = await repository.createRoom({ name: "Mesa válida", host: profiles[0]!, settings });
+    await expect(repository.setReady(room.code, "unknown", true)).rejects.toThrow("Player is not in the room");
+    await expect(repository.startGame(room.code, "p1")).rejects.toThrow("every seat filled");
+  });
+
+  it("forwards valid cross-tab channel events and ignores malformed messages", async () => {
+    const channel = { onmessage: null, postMessage: vi.fn() } as unknown as BroadcastChannel;
+    const repository = new LocalGameRepository({
+      storage: new MemoryStorage(),
+      random: () => 0.6,
+      channelFactory: () => channel,
+    });
+    const listener = vi.fn();
+    const unsubscribe = repository.subscribe("ABC234", listener);
+    channel.onmessage?.({ data: { unexpected: true } } as MessageEvent);
+    channel.onmessage?.({ data: { kind: "room", roomCode: "ABC234" } } as MessageEvent);
+    expect(listener).toHaveBeenCalledOnce();
+    unsubscribe();
+    channel.onmessage?.({ data: { kind: "room", roomCode: "ABC234" } } as MessageEvent);
+    expect(listener).toHaveBeenCalledOnce();
+  });
 });
