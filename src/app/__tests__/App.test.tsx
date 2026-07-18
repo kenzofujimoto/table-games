@@ -79,6 +79,23 @@ describe("Auren application shell", () => {
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/entrar?code=${room.code}`);
   });
 
+  it("uses singular capacity copy when one player is missing", async () => {
+    const room = await repository.createRoom({ name: "Mesa privada", host, settings });
+    const joinedRoom = await repository.joinRoom(room.code, {
+      id: "invited-player",
+      name: "Convidado",
+      color: "tide",
+      avatar: "compass",
+      crest: "wave",
+    });
+    useAppStore.setState({ profile: host, room: joinedRoom });
+    window.history.pushState({}, "", `/sala/${room.code}`);
+
+    render(<App />);
+
+    expect(await screen.findByText("Falta 1 jogador")).toBeInTheDocument();
+  });
+
   it("preserves an invite code through guest profile creation and joins the private room", async () => {
     const room = await repository.createRoom({ name: "Mesa privada", host, settings });
     window.history.pushState({}, "", `/entrar?code=${room.code}`);
