@@ -141,4 +141,27 @@ describe("authoritative online game sessions", () => {
     });
     await expect(service.sendChat(host.room.code, host.sessionToken, "client-1", "Olá")).rejects.toThrow("Chat is disabled");
   });
+
+  it("keeps the room in the lobby when initial game persistence fails", async () => {
+    class RejectInitialGameStore extends InMemoryOnlineStore {
+      override async createGame() {
+        return false;
+      }
+    }
+    let id = 0;
+    const service = new GameSessionService(new RejectInitialGameStore(), {
+      randomCode: () => "ABC234",
+      randomId: () => `generated-${++id}`,
+      issueToken: () => `session-token-${++id}`.padEnd(32, "x"),
+    });
+    const host = await service.createRoom({ name: "Mesa", host: profiles[0]!, settings });
+    const second = await service.joinRoom(host.room.code, profiles[1]!);
+    const third = await service.joinRoom(host.room.code, profiles[2]!);
+    await service.setReady(host.room.code, host.sessionToken, true);
+    await service.setReady(host.room.code, second.sessionToken, true);
+    await service.setReady(host.room.code, third.sessionToken, true);
+
+    await expect(service.startGame(host.room.code, host.sessionToken)).rejects.toThrow("Game state already exists");
+    await expect(service.getRoom(host.room.code)).resolves.toMatchObject({ status: "lobby", gameId: null });
+  });
 });
