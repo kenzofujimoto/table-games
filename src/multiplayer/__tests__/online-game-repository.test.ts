@@ -70,9 +70,22 @@ const players: Player[] = ["p1", "p2", "p3"].map((id) => ({
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("online game repository", () => {
+  it("calls the browser fetch implementation with the global receiver", async () => {
+    const fetcher = vi.fn(function (this: unknown): Promise<Response> {
+      if (this !== globalThis) throw new TypeError("Illegal invocation");
+      return Promise.resolve(new Response(JSON.stringify(room), { status: 200 }));
+    });
+    vi.stubGlobal("fetch", fetcher);
+    const repository = new OnlineGameRepository({ storage: new MemoryStorage() });
+
+    await expect(repository.getRoom(room.code)).resolves.toEqual(room);
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+
   it("persists the issued session and authenticates later room actions", async () => {
     const storage = new MemoryStorage();
     const fetcher = vi.fn()
