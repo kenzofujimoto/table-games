@@ -54,6 +54,8 @@ webSockets.on("connection", (socket) => {
             roomCode: message.roomCode,
             playerIds: record.room.players.filter((player) => player.connected).map((player) => player.profile.id),
           });
+          const chatHistory = await store.getChat(record.room.code, 50);
+          for (const chatMessage of chatHistory) send(socket, { type: "chat", payload: chatMessage });
           return;
         }
         if (message.type === "command") {
