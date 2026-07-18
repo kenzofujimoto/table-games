@@ -105,7 +105,7 @@ export class OnlineGameRepository implements GameRepository {
 
   constructor(options: OnlineRepositoryOptions) {
     this.storage = options.storage;
-    this.fetcher = options.fetcher ?? fetch;
+    this.fetcher = (options.fetcher ?? globalThis.fetch).bind(globalThis);
     this.baseUrl = options.baseUrl ?? "";
     this.realtime = options.realtime ?? new RealtimeClient({ url: realtimeUrl() });
   }
