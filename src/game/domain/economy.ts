@@ -1,4 +1,4 @@
-import { RESOURCE_TYPES, type ResourceCounts } from "./types";
+import { RESOURCE_TYPES, type Board, type Resource, type ResourceCounts } from "./types";
 
 export type PurchaseKind = "road" | "settlement" | "city" | "developmentCard";
 
@@ -33,4 +33,20 @@ export function addResources(resources: ResourceCounts, delta: Partial<ResourceC
 
 export function totalResources(resources: ResourceCounts): number {
   return RESOURCE_TYPES.reduce((total, resource) => total + resources[resource], 0);
+}
+
+export function bankTradeRatio(board: Board, playerId: string, resource: Resource): 2 | 3 | 4 {
+  let bestRatio: 2 | 3 | 4 = 4;
+
+  for (const port of board.ports) {
+    if (port.kind !== "generic" && port.kind !== resource) continue;
+    const edge = board.edges.find((candidate) => candidate.id === port.edgeId);
+    if (!edge) continue;
+    const ownsPort = edge.vertexIds.some((vertexId) => (
+      board.vertices.find((vertex) => vertex.id === vertexId)?.building?.playerId === playerId
+    ));
+    if (ownsPort && port.ratio < bestRatio) bestRatio = port.ratio;
+  }
+
+  return bestRatio;
 }

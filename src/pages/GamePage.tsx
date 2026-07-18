@@ -10,7 +10,7 @@ import { RESOURCE_TYPES } from "@/game/domain/types";
 import { DevelopmentModal, DiscardModal, TradeModal } from "@/game/ui/GameModals";
 import { HexBoard } from "@/game/ui/HexBoard";
 import { ResourceToken } from "@/game/ui/ResourceToken";
-import { canPlayerInteract, resourceCardTotal } from "@/game/ui/player-view";
+import { canOpenTrade, canPlayerInteract, resourceCardTotal } from "@/game/ui/player-view";
 import { GameLogo } from "@/shared/components/GameLogo";
 
 type BuildMode = "road" | "settlement" | "city" | null;
@@ -80,6 +80,7 @@ export function GamePage() {
   const viewer = game.players.find((player) => player.id === profile.id);
   if (!viewer) return <Navigate to="/" replace />;
   const canAct = canPlayerInteract(game, viewer.id) && actor.id === viewer.id;
+  const tradeAvailable = canOpenTrade(game, viewer.id);
 
   const send = async (command: GameCommand) => {
     const next = await dispatch(command);
@@ -114,11 +115,11 @@ export function GamePage() {
       <aside className="action-rail">
         <section className="dice-panel"><div className="dice-pair"><span>{game.dice?.first ?? "?"}</span><span>{game.dice?.second ?? "?"}</span></div><button className="button button--primary button--full" type="button" disabled={game.phase !== "roll" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "rollDice", actorId: viewer.id })}><Dices /> Lançar dados</button></section>
         <section className="actions-panel"><div className="rail-title">Construir</div><button className={buildMode === "road" ? "is-selected" : ""} type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setBuildMode("road")}><Route /><span><strong>Estrada</strong><small>1 madeira · 1 tijolo</small></span><ChevronRight /></button><button className={buildMode === "settlement" ? "is-selected" : ""} type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setBuildMode("settlement")}><Home /><span><strong>Aldeia</strong><small>Madeira · tijolo · lã · trigo</small></span><ChevronRight /></button><button className={buildMode === "city" ? "is-selected" : ""} type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setBuildMode("city")}><Building2 /><span><strong>Cidade</strong><small>2 trigo · 3 minério</small></span><ChevronRight /></button></section>
-        <section className="quick-actions"><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setModal("trade")}><ArrowRightLeft /> Comércio</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setModal("development")}><BookOpenCheck /> Cartas</button></section>
+        <section className="quick-actions"><button type="button" disabled={!tradeAvailable} onClick={() => setModal("trade")}><ArrowRightLeft /> Comércio</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setModal("development")}><BookOpenCheck /> Cartas</button></section>
         <section className="event-log"><div className="rail-title"><Flag /> Histórico</div><div>{[...game.events.slice(-7)].reverse().map((item) => <p key={item.id}><span />{item.message}</p>)}</div></section>
       </aside>
 
-      <footer className="resource-dock"><div className="resource-owner"><span className={`avatar-token avatar-token--${viewer.color}`}>{viewer.name[0]}</span><div><small>SEUS RECURSOS</small><strong>{viewer.name}</strong></div></div><div className="resource-list">{RESOURCE_TYPES.map((resource) => <ResourceToken resource={resource} amount={viewer.resources[resource]} key={resource} />)}</div><button className="button button--danger desktop-end-turn" type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id })}>Encerrar turno <ChevronRight /></button><nav className="mobile-action-bar"><button type="button" disabled={game.phase !== "roll" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "rollDice", actorId: viewer.id })}><Dices /> Dados</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setBuildMode("road")}><Route /> Estrada</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setModal("trade")}><ArrowRightLeft /> Trocar</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id })}><Flag /> Encerrar</button></nav></footer>
+      <footer className="resource-dock"><div className="resource-owner"><span className={`avatar-token avatar-token--${viewer.color}`}>{viewer.name[0]}</span><div><small>SEUS RECURSOS</small><strong>{viewer.name}</strong></div></div><div className="resource-list">{RESOURCE_TYPES.map((resource) => <ResourceToken resource={resource} amount={viewer.resources[resource]} key={resource} />)}</div><button className="button button--danger desktop-end-turn" type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id })}>Encerrar turno <ChevronRight /></button><nav className="mobile-action-bar"><button type="button" disabled={game.phase !== "roll" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "rollDice", actorId: viewer.id })}><Dices /> Dados</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setBuildMode("road")}><Route /> Estrada</button><button type="button" disabled={!tradeAvailable} onClick={() => setModal("trade")}><ArrowRightLeft /> Trocar</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id })}><Flag /> Encerrar</button></nav></footer>
 
       {game.phase === "discard" && <DiscardModal state={game} viewerId={viewer.id} dispatch={dispatch} />}
       {modal === "trade" && <TradeModal state={game} viewerId={viewer.id} dispatch={dispatch} onClose={() => setModal(null)} />}

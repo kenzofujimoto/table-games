@@ -2,6 +2,7 @@ import { ArrowRightLeft, BookOpenCheck, Check, Dices, X } from "lucide-react";
 import { useState } from "react";
 
 import type { GameCommand, GameState } from "@/game/application/game-engine";
+import { bankTradeRatio, BUILD_COSTS, canAfford } from "@/game/domain/economy";
 import { validRoadEdges } from "@/game/domain/placement";
 import { RESOURCE_TYPES, emptyResources, type Resource, type ResourceCounts } from "@/game/domain/types";
 
@@ -26,10 +27,11 @@ export function TradeModal({ state, viewerId, dispatch, onClose }: ModalProps) {
   const [receive, setReceive] = useState<Resource>("ore");
   const [targetId, setTargetId] = useState(state.players.find((player) => player.id !== viewer.id)?.id ?? "");
   const openTrade = state.trades.find((trade) => trade.status === "open");
+  const ratio = bankTradeRatio(state.board, viewer.id, give);
 
   const submit = async () => {
     if (tab === "bank") {
-      await dispatch({ id: crypto.randomUUID(), type: "bankTrade", actorId: viewer.id, give, receive, ratio: 4 });
+      await dispatch({ id: crypto.randomUUID(), type: "bankTrade", actorId: viewer.id, give, receive, ratio });
       onClose();
       return;
     }
@@ -45,29 +47,40 @@ export function TradeModal({ state, viewerId, dispatch, onClose }: ModalProps) {
     </div> : <>
       <div className="trade-builder"><label><span>Você oferece</span><select className="text-input" value={give} onChange={(event) => setGive(event.target.value as Resource)}>{RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{RESOURCE_META[resource].label} ({viewer.resources[resource]})</option>)}</select></label><ArrowRightLeft /><label><span>Você recebe</span><select className="text-input" value={receive} onChange={(event) => setReceive(event.target.value as Resource)}>{RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{RESOURCE_META[resource].label}</option>)}</select></label></div>
       {tab === "players" && <label className="field"><span>Destinatário</span><select className="text-input" value={targetId} onChange={(event) => setTargetId(event.target.value)}>{state.players.filter((player) => player.id !== viewer.id).map((player) => <option value={player.id} key={player.id}>{player.name}</option>)}</select></label>}
-      {tab === "bank" && <p className="modal-note">Taxa atual: 4 recursos por 1. Portos válidos habilitam 3:1 ou 2:1 automaticamente no motor.</p>}
-      <button className="button button--primary button--full" type="button" disabled={active.id !== viewer.id || give === receive || viewer.resources[give] < (tab === "bank" ? 4 : 1)} onClick={() => void submit()}>{tab === "bank" ? "Negociar com o banco" : "Enviar proposta"}</button>
+      {tab === "bank" && <p className="modal-note">Taxa atual para {RESOURCE_META[give].label.toLowerCase()}: {ratio}:1.</p>}
+      <button className="button button--primary button--full" type="button" disabled={active.id !== viewer.id || give === receive || viewer.resources[give] < (tab === "bank" ? ratio : 1)} onClick={() => void submit()}>{tab === "bank" ? "Negociar com o banco" : "Enviar proposta"}</button>
     </>}
   </ModalFrame>;
 }
 
 export function DevelopmentModal({ state, viewerId, dispatch, onClose }: ModalProps) {
-  const active = state.players.find((player) => player.id === viewerId)!;
+  const viewer = state.players.find((player) => player.id === viewerId)!;
+  const isActive = state.players[state.activePlayerIndex]?.id === viewer.id;
+  const canBuy = state.phase === "actions"
+    && isActive
+    && state.developmentDeck.length > 0
+    && canAfford(viewer.resources, BUILD_COSTS.developmentCard);
+  const buy = async () => {
+    const next = await dispatch({ id: crypto.randomUUID(), type: "buyDevelopmentCard", actorId: viewer.id });
+    if (next) onClose();
+  };
   const play = async (cardId: string, kind: string) => {
     let command: GameCommand;
-    if (kind === "monopoly") command = { id: crypto.randomUUID(), type: "playDevelopmentCard", actorId: active.id, cardId, resource: "ore" };
-    else if (kind === "yearOfPlenty") command = { id: crypto.randomUUID(), type: "playDevelopmentCard", actorId: active.id, cardId, resources: ["grain", "ore"] };
+    if (kind === "monopoly") command = { id: crypto.randomUUID(), type: "playDevelopmentCard", actorId: viewer.id, cardId, resource: "ore" };
+    else if (kind === "yearOfPlenty") command = { id: crypto.randomUUID(), type: "playDevelopmentCard", actorId: viewer.id, cardId, resources: ["grain", "ore"] };
     else if (kind === "roadBuilding") {
-      const edgeId = validRoadEdges(state.board, active.id)[0];
+      const edgeId = validRoadEdges(state.board, viewer.id)[0];
       if (!edgeId) return;
-      command = { id: crypto.randomUUID(), type: "playDevelopmentCard", actorId: active.id, cardId, edgeIds: [edgeId] };
-    } else command = { id: crypto.randomUUID(), type: "playDevelopmentCard", actorId: active.id, cardId };
+      command = { id: crypto.randomUUID(), type: "playDevelopmentCard", actorId: viewer.id, cardId, edgeIds: [edgeId] };
+    } else command = { id: crypto.randomUUID(), type: "playDevelopmentCard", actorId: viewer.id, cardId };
     await dispatch(command);
     onClose();
   };
   const names = { knight: "Cavaleiro", roadBuilding: "Construção de estradas", yearOfPlenty: "Ano de abundância", monopoly: "Monopólio", victoryPoint: "Ponto de vitória" };
   return <ModalFrame title="Cartas de horizonte" icon={<BookOpenCheck />} onClose={onClose}>
-    <div className="development-list">{active.developmentCards.length === 0 ? <div className="empty-modal"><BookOpenCheck /><p>Você ainda não possui cartas.</p></div> : active.developmentCards.map((card) => {
+    <p className="modal-note">O baralho possui {state.developmentDeck.length} cartas. A compra custa 1 lã, 1 trigo e 1 minério.</p>
+    <button className="button button--primary button--full" type="button" disabled={!canBuy} onClick={() => void buy()}>Comprar carta</button>
+    <div className="development-list">{viewer.developmentCards.length === 0 ? <div className="empty-modal"><BookOpenCheck /><p>Você ainda não possui cartas.</p></div> : viewer.developmentCards.map((card) => {
       const playable = card.kind !== "victoryPoint" && card.purchasedTurn < state.turnNumber && !state.usedDevelopmentCardThisTurn;
       return <article key={card.id}><div className={`dev-card-symbol dev-card-symbol--${card.kind}`}><BookOpenCheck /></div><div><strong>{names[card.kind]}</strong><small>{card.kind === "victoryPoint" ? "Permanece oculto até a vitória" : card.purchasedTurn === state.turnNumber ? "Disponível no próximo turno" : "Pronta para usar"}</small></div><button className="button button--secondary" type="button" disabled={!playable} onClick={() => void play(card.id, card.kind)}>Usar</button></article>;
     })}</div>

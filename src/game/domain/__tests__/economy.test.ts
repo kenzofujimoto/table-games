@@ -39,10 +39,10 @@ describe("building economy", () => {
   it("selects the best bank trade ratio from settlements on owned ports", () => {
     const board = makeLinearBoard();
     board.vertices[0]!.building = { kind: "settlement", playerId: "p1" };
-    board.ports = [{ id: "generic", edgeId: "e0", kind: "generic", ratio: 3 }];
+    board.ports = [{ id: "generic", edgeId: "e1", kind: "generic", ratio: 3 }];
     expect(bankTradeRatio(board, "p1", "wood")).toBe(3);
 
-    board.ports.push({ id: "wood", edgeId: "e0", kind: "wood", ratio: 2 });
+    board.ports.push({ id: "wood", edgeId: "e1", kind: "wood", ratio: 2 });
     expect(bankTradeRatio(board, "p1", "wood")).toBe(2);
     expect(bankTradeRatio(board, "p1", "ore")).toBe(3);
     expect(bankTradeRatio(board, "p2", "wood")).toBe(4);
