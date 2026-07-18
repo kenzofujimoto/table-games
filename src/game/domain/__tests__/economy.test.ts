@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { addResources, BUILD_COSTS, canAfford, payCost, totalResources } from "../economy";
+import { addResources, bankTradeRatio, BUILD_COSTS, canAfford, payCost, totalResources } from "../economy";
 import { distributeProduction } from "../production";
 import { makeLinearBoard, makePlayer } from "./fixtures";
 
@@ -34,6 +34,18 @@ describe("building economy", () => {
     const resources = { wood: 1, brick: 2, wool: 3, grain: 4, ore: 5 };
     expect(addResources(resources, { wood: 2, ore: 1 })).toEqual({ wood: 3, brick: 2, wool: 3, grain: 4, ore: 6 });
     expect(totalResources(resources)).toBe(15);
+  });
+
+  it("selects the best bank trade ratio from settlements on owned ports", () => {
+    const board = makeLinearBoard();
+    board.vertices[0]!.building = { kind: "settlement", playerId: "p1" };
+    board.ports = [{ id: "generic", edgeId: "e0", kind: "generic", ratio: 3 }];
+    expect(bankTradeRatio(board, "p1", "wood")).toBe(3);
+
+    board.ports.push({ id: "wood", edgeId: "e0", kind: "wood", ratio: 2 });
+    expect(bankTradeRatio(board, "p1", "wood")).toBe(2);
+    expect(bankTradeRatio(board, "p1", "ore")).toBe(3);
+    expect(bankTradeRatio(board, "p2", "wood")).toBe(4);
   });
 });
 
