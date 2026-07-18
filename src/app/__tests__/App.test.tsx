@@ -25,7 +25,7 @@ const settings: RoomSettings = {
 const host: PlayerProfile = {
   id: "host-player",
   name: "Anfitrião",
-  color: "tide",
+  color: "ember",
   avatar: "compass",
   crest: "sun",
 };
@@ -94,5 +94,6 @@ describe("Auren application shell", () => {
     await user.click(screen.getByRole("button", { name: /Entrar na sala/i }));
     expect(await screen.findByText("Convidado", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByText("2/3")).toBeInTheDocument();
+    expect(useAppStore.getState().profile?.color).toBe("tide");
   });
 });
