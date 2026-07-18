@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyMonopoly, canPlayDevelopmentCard, drawDevelopmentCard } from "../development-cards";
+import { applyMonopoly, canPlayDevelopmentCard, createDevelopmentDeck, drawDevelopmentCard } from "../development-cards";
 import { makePlayer } from "./fixtures";
 
 describe("development cards", () => {
@@ -15,6 +15,14 @@ describe("development cards", () => {
   it("draws deterministically from a shared deck", () => {
     const deck = ["knight", "monopoly", "victoryPoint"] as const;
     expect(drawDevelopmentCard([...deck], () => 0.5)).toEqual({ card: "monopoly", remainingDeck: ["knight", "victoryPoint"] });
+    expect(() => drawDevelopmentCard([])).toThrow("Development deck is empty");
+  });
+
+  it("creates the complete 25-card base deck", () => {
+    const deck = createDevelopmentDeck();
+    expect(deck).toHaveLength(25);
+    expect(deck.filter((card) => card === "knight")).toHaveLength(14);
+    expect(deck.filter((card) => card === "victoryPoint")).toHaveLength(5);
   });
 
   it("moves every selected resource from opponents during monopoly", () => {

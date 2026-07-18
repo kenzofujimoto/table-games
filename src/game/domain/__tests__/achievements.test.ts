@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { determineLargestArmy, longestRoadLength } from "../achievements";
+import { determineLargestArmy, determineLongestRoadOwner, longestRoadLength } from "../achievements";
 import { calculateScore, hasWon } from "../scoring";
 import { makeLinearBoard, makePlayer } from "./fixtures";
 
@@ -31,6 +31,16 @@ describe("longest road", () => {
     board.vertices[2]!.building = { kind: "settlement", playerId: "p2" };
 
     expect(longestRoadLength(board, "p1")).toBe(3);
+  });
+
+  it("awards only a route with at least five edges", () => {
+    const board = makeLinearBoard();
+    const players = [makePlayer("p1"), makePlayer("p2")];
+    expect(determineLongestRoadOwner(board, players, null)).toBeNull();
+    board.edges.slice(0, 5).forEach((edge) => {
+      edge.roadPlayerId = "p1";
+    });
+    expect(determineLongestRoadOwner(board, players, null)).toBe("p1");
   });
 });
 

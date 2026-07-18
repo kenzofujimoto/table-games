@@ -22,5 +22,11 @@ describe("turn rules", () => {
       "It is not this player's turn",
     );
     expect(validateTurnAction({ action: "build", actorId: "p1", activePlayerId: "p1", phase: "actions" })).toBe(true);
+    expect(() => validateTurnAction({ action: "roll", actorId: "p1", activePlayerId: "p1", phase: "actions" })).toThrow(
+      "Dice cannot be rolled in the current phase",
+    );
+    expect(() => validateTurnAction({ action: "endTurn", actorId: "p1", activePlayerId: "p1", phase: "robber" })).toThrow(
+      "Resolve the current phase first",
+    );
   });
 });

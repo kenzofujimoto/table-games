@@ -11,7 +11,10 @@ describe("seeded board generation", () => {
 
   it("generates 19 tiles with the classic terrain distribution", () => {
     const board = generateBoard({ seed: "classic-layout", shape: "classic" });
-    const counts = Object.groupBy(board.tiles, (tile) => tile.terrain);
+    const counts = board.tiles.reduce<Record<string, typeof board.tiles>>((result, tile) => {
+      result[tile.terrain] = [...(result[tile.terrain] ?? []), tile];
+      return result;
+    }, {});
 
     expect(board.tiles).toHaveLength(19);
     expect(counts.forest).toHaveLength(4);
@@ -34,5 +37,12 @@ describe("seeded board generation", () => {
     expect(new Set(board.vertices.map((vertex) => vertex.id)).size).toBe(board.vertices.length);
     expect(new Set(board.edges.map((edge) => edge.id)).size).toBe(board.edges.length);
     expect(board.tiles.every((tile) => tile.vertexIds.length === 6)).toBe(true);
+  });
+
+  it("rejects an empty seed and reports malformed boards", () => {
+    expect(() => generateBoard({ seed: "  ", shape: "classic" })).toThrow("A board seed is required");
+    const board = generateBoard({ seed: "invalid-copy", shape: "classic" });
+    board.tiles = board.tiles.slice(0, 18);
+    expect(validateBoardBalance(board).balanced).toBe(false);
   });
 });

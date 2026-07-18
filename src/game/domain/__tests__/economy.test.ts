@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { BUILD_COSTS, canAfford, payCost } from "../economy";
+import { addResources, BUILD_COSTS, canAfford, payCost, totalResources } from "../economy";
 import { distributeProduction } from "../production";
 import { makeLinearBoard, makePlayer } from "./fixtures";
 
@@ -28,6 +28,12 @@ describe("building economy", () => {
       ore: 0,
     });
     expect(resources.wood).toBe(2);
+  });
+
+  it("adds and totals resource bundles", () => {
+    const resources = { wood: 1, brick: 2, wool: 3, grain: 4, ore: 5 };
+    expect(addResources(resources, { wood: 2, ore: 1 })).toEqual({ wood: 3, brick: 2, wool: 3, grain: 4, ore: 6 });
+    expect(totalResources(resources)).toBe(15);
   });
 });
 
