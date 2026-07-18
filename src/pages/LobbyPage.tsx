@@ -169,7 +169,7 @@ export function LobbyPage() {
           </aside>
         </div>
         {error && <div className="floating-error" role="alert">{error}</div>}
-        {isHost && <div className="start-dock"><div><strong>{allReady ? "A tripulação está pronta" : missingPlayers > 0 ? `Faltam ${missingPlayers} ${missingPlayers === 1 ? "jogador" : "jogadores"}` : "Aguardando a prontidão"}</strong><small>{allReady ? "A ilha foi gerada e aguarda sua ordem." : missingPlayers > 0 ? `Esta sala começa com ${room.settings.maxPlayers} jogadores.` : "Todos precisam marcar que estão prontos."}</small></div><button className="button button--primary" type="button" disabled={!allReady} onClick={() => void start()}><Play /> Iniciar partida</button></div>}
+        {isHost && <div className="start-dock"><div><strong>{allReady ? "A tripulação está pronta" : missingPlayers === 1 ? "Falta 1 jogador" : missingPlayers > 1 ? `Faltam ${missingPlayers} jogadores` : "Aguardando a prontidão"}</strong><small>{allReady ? "A ilha foi gerada e aguarda sua ordem." : missingPlayers > 0 ? `Esta sala começa com ${room.settings.maxPlayers} jogadores.` : "Todos precisam marcar que estão prontos."}</small></div><button className="button button--primary" type="button" disabled={!allReady} onClick={() => void start()}><Play /> Iniciar partida</button></div>}
       </main>
     </AppShell>
   );
