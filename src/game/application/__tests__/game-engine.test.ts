@@ -309,3 +309,105 @@ describe("construction, purchases and defensive validation", () => {
     })).toThrow("The game has already finished");
   });
 });
+
+describe("player trades and development cards", () => {
+  it("opens a targeted trade and transfers resources only after acceptance", () => {
+    const setup = completeSetup().state;
+    let state = {
+      ...setup,
+      phase: "actions" as const,
+      players: setup.players.map((player) => ({
+        ...player,
+        resources: player.id === "p1"
+          ? { ...emptyResources(), wood: 2 }
+          : player.id === "p2" ? { ...emptyResources(), ore: 1 } : emptyResources(),
+      })),
+    };
+    state = applyGameCommand(state, {
+      id: "offer-trade",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: { ...emptyResources(), wood: 1 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2"],
+    });
+    expect(state.trades[0]).toMatchObject({ id: "offer-trade", status: "open", proposerId: "p1" });
+    expect(state.players[0]!.resources.wood).toBe(2);
+
+    state = applyGameCommand(state, {
+      id: "accept-trade",
+      type: "respondTrade",
+      actorId: "p2",
+      tradeId: "offer-trade",
+      response: "accept",
+    });
+    expect(state.trades[0]!.status).toBe("accepted");
+    expect(state.players[0]!.resources).toMatchObject({ wood: 1, ore: 1 });
+    expect(state.players[1]!.resources).toMatchObject({ wood: 1, ore: 0 });
+  });
+
+  it("plays monopoly only from a previous turn and only once per turn", () => {
+    const setup = completeSetup().state;
+    const monopolyCard = { id: "monopoly-card", kind: "monopoly" as const, purchasedTurn: 1, revealed: false };
+    let state = {
+      ...setup,
+      phase: "actions" as const,
+      turnNumber: 2,
+      players: setup.players.map((player) => ({
+        ...player,
+        resources: { ...emptyResources(), ore: player.id === "p1" ? 0 : 2 },
+        developmentCards: player.id === "p1" ? [monopolyCard] : [],
+      })),
+    };
+    state = applyGameCommand(state, {
+      id: "play-monopoly",
+      type: "playDevelopmentCard",
+      actorId: "p1",
+      cardId: monopolyCard.id,
+      resource: "ore",
+    });
+    expect(state.players[0]!.resources.ore).toBe(4);
+    expect(state.players.slice(1).every((player) => player.resources.ore === 0)).toBe(true);
+    expect(state.usedDevelopmentCardThisTurn).toBe(true);
+    expect(state.players[0]!.developmentCards).toHaveLength(0);
+    expect(() => applyGameCommand(state, {
+      id: "play-again",
+      type: "playDevelopmentCard",
+      actorId: "p1",
+      cardId: "another-card",
+      resource: "wood",
+    })).toThrow("one development card");
+  });
+
+  it("uses year of plenty from the bank and a knight triggers the robber", () => {
+    const setup = completeSetup().state;
+    const cards = [
+      { id: "plenty", kind: "yearOfPlenty" as const, purchasedTurn: 1, revealed: false },
+      { id: "knight", kind: "knight" as const, purchasedTurn: 1, revealed: false },
+    ];
+    let state = {
+      ...setup,
+      phase: "actions" as const,
+      turnNumber: 2,
+      players: setup.players.map((player) => player.id === "p1" ? { ...player, developmentCards: cards } : player),
+    };
+    state = applyGameCommand(state, {
+      id: "play-plenty",
+      type: "playDevelopmentCard",
+      actorId: "p1",
+      cardId: "plenty",
+      resources: ["grain", "ore"],
+    });
+    expect(state.players[0]!.resources).toMatchObject({ grain: 1, ore: 1 });
+
+    state = { ...state, usedDevelopmentCardThisTurn: false, turnNumber: 3 };
+    state = applyGameCommand(state, {
+      id: "play-knight",
+      type: "playDevelopmentCard",
+      actorId: "p1",
+      cardId: "knight",
+    });
+    expect(state.phase).toBe("robber");
+    expect(state.players[0]!.playedKnights).toBe(1);
+  });
+});
