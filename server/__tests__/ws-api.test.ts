@@ -45,13 +45,22 @@ describe("WebSocket API", () => {
       host: { id: "ws-player", name: "Lia", color: "ember", avatar: "compass", crest: "sun" },
       settings,
     });
+    const previousChat = await service.sendChat(
+      session.room.code,
+      session.sessionToken,
+      "previous-message",
+      "Mensagem antes da reconexão",
+    );
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     const { port } = server.address() as AddressInfo;
     const socket = new WebSocket(`ws://127.0.0.1:${port}`);
     const messages: ServerRealtimeMessage[] = [];
 
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error("WebSocket integration timed out")), 3_000);
+      const timeout = setTimeout(() => {
+        socket.terminate();
+        reject(new Error("WebSocket integration timed out"));
+      }, 3_000);
       socket.on("open", () => {
         socket.send(JSON.stringify({
           type: "subscribe",
@@ -62,7 +71,11 @@ describe("WebSocket API", () => {
       });
       socket.on("message", (data) => {
         messages.push(JSON.parse(decodeMessage(data)) as ServerRealtimeMessage);
-        if (messages.some((message) => message.type === "connected") && messages.some((message) => message.type === "pong")) {
+        if (
+          messages.some((message) => message.type === "connected")
+          && messages.some((message) => message.type === "pong")
+          && messages.some((message) => message.type === "chat" && message.payload.id === previousChat.id)
+        ) {
           clearTimeout(timeout);
           resolve();
         }
@@ -75,6 +88,7 @@ describe("WebSocket API", () => {
 
     expect(messages).toContainEqual({ type: "connected", roomCode: session.room.code, playerId: "ws-player" });
     expect(messages).toContainEqual({ type: "pong", sentAt: 1234 });
+    expect(messages).toContainEqual({ type: "chat", payload: previousChat });
     socket.close();
     await new Promise<void>((resolve) => socket.once("close", () => resolve()));
   });
