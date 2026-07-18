@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { applyGameCommand, type GameCommand, type GameState } from "@/game/application/game-engine";
-import { createBrowserLocalRepository } from "@/multiplayer/local-game-repository";
+import type { GameCommand, GameState } from "@/game/application/game-engine";
+import { createBrowserGameRepository } from "@/multiplayer/repository-factory";
 import type { GameRoom, PlayerProfile } from "@/multiplayer/types";
 
 export interface AccessibilitySettings {
@@ -30,7 +30,7 @@ interface AppStore {
   dispatch: (command: GameCommand) => Promise<GameState | null>;
 }
 
-export const repository = createBrowserLocalRepository();
+export const repository = createBrowserGameRepository();
 
 const defaultSettings: AccessibilitySettings = {
   music: false,
@@ -62,9 +62,8 @@ export const useAppStore = create<AppStore>()(persist(
         return null;
       }
       try {
-        const next = applyGameCommand(current, command);
+        const next = await repository.executeCommand(current, command);
         set({ game: next, error: null });
-        await repository.saveGame(next);
         return next;
       } catch (error) {
         const message = error instanceof Error ? error.message : "A ação não pôde ser concluída.";

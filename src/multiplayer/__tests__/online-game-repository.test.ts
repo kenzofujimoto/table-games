@@ -103,7 +103,8 @@ describe("online game repository", () => {
 
     expect(next.version).toBe(1);
     const request = fetcher.mock.calls[1] as [string, RequestInit];
-    const payload = JSON.parse(String(request[1].body)) as { expectedVersion: number; command: Record<string, unknown> };
+    if (typeof request[1].body !== "string") throw new Error("Expected a JSON request body");
+    const payload = JSON.parse(request[1].body) as { expectedVersion: number; command: Record<string, unknown> };
     expect(payload.expectedVersion).toBe(0);
     expect(payload.command).not.toHaveProperty("actorId");
   });

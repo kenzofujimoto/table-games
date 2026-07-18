@@ -1,4 +1,4 @@
-import type { GameState } from "@/game/application/game-engine";
+import { applyGameCommand, type GameCommand, type GameState } from "@/game/application/game-engine";
 
 import {
   gameRoomSchema,
@@ -38,6 +38,7 @@ function safeParseRecord(value: string | null): Record<string, unknown> {
 }
 
 export class LocalGameRepository implements GameRepository {
+  readonly kind = "local" as const;
   private readonly storage: Storage;
   private readonly random: () => number;
   private readonly channel: BroadcastChannel | null;
@@ -193,6 +194,12 @@ export class LocalGameRepository implements GameRepository {
   async loadGame(gameId: string): Promise<GameState | null> {
     const value = safeParseRecord(this.storage.getItem(GAMES_KEY))[gameId];
     return value && typeof value === "object" ? value as GameState : null;
+  }
+
+  async executeCommand(state: GameState, command: GameCommand): Promise<GameState> {
+    const next = applyGameCommand(state, command);
+    await this.saveGame(next);
+    return next;
   }
 
   subscribe(roomCode: string, listener: (event: RepositoryEvent) => void): () => void {

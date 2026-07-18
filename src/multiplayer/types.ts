@@ -1,6 +1,8 @@
 import { z } from "zod";
 
-import type { GameState } from "@/game/application/game-engine";
+import type { GameCommand, GameState } from "@/game/application/game-engine";
+
+import type { ChatMessage } from "./protocol";
 
 export const playerColors = ["ember", "tide", "moss", "amethyst"] as const;
 
@@ -57,7 +59,15 @@ export type GameRoom = z.infer<typeof gameRoomSchema>;
 
 export type RepositoryEvent =
   | { kind: "room"; roomCode: string }
-  | { kind: "game"; roomCode: string };
+  | { kind: "game"; roomCode: string }
+  | { kind: "chat"; roomCode: string; message: ChatMessage }
+  | { kind: "connection"; roomCode: string; connected: boolean };
+
+export interface RepositorySession {
+  roomCode: string;
+  playerId: string;
+  sessionToken: string;
+}
 
 export interface CreateRoomInput {
   name: string;
@@ -66,6 +76,7 @@ export interface CreateRoomInput {
 }
 
 export interface GameRepository {
+  readonly kind: "local" | "online";
   createRoom(input: CreateRoomInput): Promise<GameRoom>;
   getRoom(code: string): Promise<GameRoom | null>;
   joinRoom(code: string, profile: PlayerProfile): Promise<GameRoom>;
@@ -73,5 +84,6 @@ export interface GameRepository {
   startGame(code: string, actorId: string): Promise<GameRoom>;
   saveGame(state: GameState): Promise<void>;
   loadGame(gameId: string): Promise<GameState | null>;
+  executeCommand(state: GameState, command: GameCommand): Promise<GameState>;
   subscribe(roomCode: string, listener: (event: RepositoryEvent) => void): () => void;
 }

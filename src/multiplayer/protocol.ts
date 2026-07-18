@@ -105,15 +105,36 @@ export const clientRealtimeMessageSchema = z.discriminatedUnion("type", [
 
 export type ClientRealtimeMessage = z.infer<typeof clientRealtimeMessageSchema>;
 
-export interface ChatMessage {
-  id: string;
-  clientMessageId: string;
-  roomCode: string;
-  playerId: string;
-  playerName: string;
-  message: string;
-  createdAt: string;
-}
+export const chatMessageSchema = z.object({
+  id: z.string().min(1),
+  clientMessageId: z.string().min(1),
+  roomCode: roomCodeSchema,
+  playerId: z.string().min(1),
+  playerName: z.string().min(1).max(24),
+  message: z.string().min(1).max(280),
+  createdAt: z.string().min(1),
+}).strict();
+
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
+
+export const serverRealtimeMessageSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("connected"), roomCode: roomCodeSchema, playerId: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("roomUpdated"), roomCode: roomCodeSchema }).strict(),
+  z.object({
+    type: z.literal("gameUpdated"),
+    roomCode: roomCodeSchema,
+    gameId: z.string().min(1),
+    version: z.number().int().nonnegative(),
+  }).strict(),
+  z.object({
+    type: z.literal("presence"),
+    roomCode: roomCodeSchema,
+    playerIds: z.array(z.string().min(1)).max(4),
+  }).strict(),
+  z.object({ type: z.literal("chat"), payload: chatMessageSchema }).strict(),
+  z.object({ type: z.literal("error"), code: z.string().min(1), message: z.string().min(1) }).strict(),
+  z.object({ type: z.literal("pong"), sentAt: z.number().nonnegative() }).strict(),
+]);
 
 export type ServerRealtimeMessage =
   | { type: "connected"; roomCode: string; playerId: string }
