@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { PlayerProfile, RoomSettings } from "../../src/multiplayer/types";
 import { GameSessionService } from "../game-session-service";
-import { handleGameApi, handleRoomApi } from "../http-api";
+import { errorResult, handleGameApi, handleRoomApi } from "../http-api";
 import { InMemoryOnlineStore } from "../in-memory-online-store";
 
 const settings: RoomSettings = {
@@ -99,5 +99,68 @@ describe("HTTP multiplayer API", () => {
 
     expect(accepted).toMatchObject({ status: 200, body: { version: initial.version + 1 } });
     expect(stale).toMatchObject({ status: 409, body: { code: "VERSION_CONFLICT" } });
+  });
+
+  it("handles game reads, missing parameters and unsupported methods", async () => {
+    const service = setup();
+    const host = await service.createRoom({ name: "Mesa", host: profiles[0]!, settings });
+    const second = await service.joinRoom(host.room.code, profiles[1]!);
+    const third = await service.joinRoom(host.room.code, profiles[2]!);
+    await service.setReady(host.room.code, host.sessionToken, true);
+    await service.setReady(host.room.code, second.sessionToken, true);
+    await service.setReady(host.room.code, third.sessionToken, true);
+    const room = await service.startGame(host.room.code, host.sessionToken);
+    const headers = { authorization: `Bearer ${host.sessionToken}` };
+
+    const game = await handleGameApi({ method: "GET", headers, query: { id: room.gameId! } }, service);
+    const missingId = await handleGameApi({ method: "GET", headers }, service);
+    const unsupportedGame = await handleGameApi({ method: "DELETE", headers }, service);
+    const invalidRoom = await handleRoomApi({ method: "GET", query: { code: "BAD" } }, service);
+    const unsupportedRoom = await handleRoomApi({ method: "PATCH" }, service);
+
+    expect(game).toMatchObject({ status: 200, body: { id: room.gameId } });
+    expect(missingId).toMatchObject({ status: 400, body: { code: "INVALID_REQUEST" } });
+    expect(unsupportedGame).toMatchObject({ status: 405, body: { code: "METHOD_NOT_ALLOWED" } });
+    expect(invalidRoom.status).toBe(400);
+    expect(unsupportedRoom.status).toBe(405);
+  });
+
+  it("routes join, readiness and start actions through the authenticated boundary", async () => {
+    const service = setup();
+    const host = await service.createRoom({ name: "Mesa", host: profiles[0]!, settings });
+    const joined = await handleRoomApi({
+      method: "POST",
+      body: { action: "join", roomCode: host.room.code, profile: profiles[1] },
+    }, service);
+    const second = joined.body as { sessionToken: string };
+    const third = await service.joinRoom(host.room.code, profiles[2]!);
+    const hostReady = await handleRoomApi({
+      method: "POST",
+      headers: { authorization: `Bearer ${host.sessionToken}` },
+      body: { action: "ready", roomCode: host.room.code, ready: true },
+    }, service);
+    await service.setReady(host.room.code, second.sessionToken, true);
+    await service.setReady(host.room.code, third.sessionToken, true);
+    const started = await handleRoomApi({
+      method: "POST",
+      headers: { authorization: `Bearer ${host.sessionToken}` },
+      body: { action: "start", roomCode: host.room.code },
+    }, service);
+
+    expect(joined.status).toBe(200);
+    expect(hostReady.status).toBe(200);
+    expect((hostReady.body as { players: Array<{ ready: boolean }> }).players[0]?.ready).toBe(true);
+    expect(started).toMatchObject({ status: 200, body: { status: "playing" } });
+  });
+
+  it("maps known domain failures and hides non-error internals", () => {
+    expect(errorResult(new Error("Invalid session token"))).toMatchObject({ status: 401, body: { code: "UNAUTHORIZED" } });
+    expect(errorResult(new Error("Game was not found"))).toMatchObject({ status: 404, body: { code: "NOT_FOUND" } });
+    expect(errorResult(new Error("Only the host can start"))).toMatchObject({ status: 403, body: { code: "FORBIDDEN" } });
+    expect(errorResult(new Error("Every player must be ready"))).toMatchObject({ status: 409, body: { code: "INVALID_ACTION" } });
+    expect(errorResult({ secret: "do not expose" })).toEqual({
+      status: 500,
+      body: { code: "INTERNAL_ERROR", message: "Unexpected server error" },
+    });
   });
 });

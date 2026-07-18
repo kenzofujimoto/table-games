@@ -1,10 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createGame, type GameState } from "../../src/game/application/game-engine";
 import { emptyResources, type Player } from "../../src/game/domain/types";
 import type { GameRoom, RoomSettings } from "../../src/multiplayer/types";
 import { DurableOnlineStore, type SnapshotArchive } from "../durable-online-store";
 import { InMemoryOnlineStore } from "../in-memory-online-store";
+import type { ChatMessage, ServerRealtimeMessage } from "../../src/multiplayer/protocol";
 import type { StoredRoomRecord } from "../online-store";
 
 const settings: RoomSettings = {
@@ -132,5 +133,34 @@ describe("durable online store", () => {
     const stale = { ...initialRoom, revision: 1 };
     expect(await store.compareAndSetRoom("ABC234", 9, stale)).toBe(false);
     expect(archive.rooms).toHaveLength(1);
+  });
+
+  it("forwards chat and pub/sub operations to the live cache", async () => {
+    const store = new DurableOnlineStore(new InMemoryOnlineStore(), new MemorySnapshotArchive());
+    const message: ChatMessage = {
+      id: "message-1",
+      clientMessageId: "client-1",
+      roomCode: "ABC234",
+      playerId: "p1",
+      playerName: "Lia",
+      message: "Olá",
+      createdAt: "2026-07-18T12:00:00.000Z",
+    };
+    const listener = vi.fn<(event: ServerRealtimeMessage) => void>();
+    const unsubscribe = await store.subscribe("ABC234", listener);
+    await store.appendChat(message);
+    await store.publish("ABC234", { type: "chat", payload: message });
+
+    await expect(store.getChat("ABC234", 10)).resolves.toEqual([message]);
+    expect(listener).toHaveBeenCalledWith({ type: "chat", payload: message });
+    await unsubscribe();
+    await store.publish("ABC234", { type: "roomUpdated", roomCode: "ABC234" });
+    expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("returns null when neither cache nor archive contains a snapshot", async () => {
+    const store = new DurableOnlineStore(new InMemoryOnlineStore(), new MemorySnapshotArchive());
+    await expect(store.getRoom("NONE23")).resolves.toBeNull();
+    await expect(store.getGame("missing-game")).resolves.toBeNull();
   });
 });

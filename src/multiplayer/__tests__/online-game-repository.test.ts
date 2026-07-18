@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createGame } from "@/game/application/game-engine";
 import { emptyResources, type Player } from "@/game/domain/types";
 
 import { OnlineGameRepository } from "../online-game-repository";
+import type { ServerRealtimeMessage } from "../protocol";
+import type { RealtimeClient } from "../realtime-client";
 import type { GameRoom, PlayerProfile, RoomSettings } from "../types";
 
 class MemoryStorage implements Storage {
@@ -64,6 +66,11 @@ const players: Player[] = ["p1", "p2", "p3"].map((id) => ({
   playedKnights: 0,
   revealedVictoryPoints: 0,
 }));
+
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 describe("online game repository", () => {
   it("persists the issued session and authenticates later room actions", async () => {
@@ -126,5 +133,80 @@ describe("online game repository", () => {
       type: "rollDice",
       actorId: profile.id,
     })).rejects.toMatchObject({ code: "VERSION_CONFLICT" });
+  });
+
+  it("reads rooms and games, starts sessions and handles not-found responses", async () => {
+    const storage = new MemoryStorage();
+    const game = createGame({ id: "game-1", roomCode: room.code, seed: "seed", players, targetScore: 10 });
+    const playingRoom = { ...room, status: "playing" as const, gameId: game.id };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ room, sessionToken: "s".repeat(32) }), { status: 201 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(room), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(playingRoom), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(game), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "NOT_FOUND", message: "Room was not found" }), { status: 404 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: "NOT_FOUND", message: "Game was not found" }), { status: 404 }));
+    const repository = new OnlineGameRepository({ storage, fetcher, baseUrl: "https://example.test" });
+    await repository.createRoom({ name: room.name, host: profile, settings });
+
+    await expect(repository.getRoom("abc234")).resolves.toEqual(room);
+    await expect(repository.startGame(room.code, profile.id)).resolves.toEqual(playingRoom);
+    await expect(repository.loadGame(game.id)).resolves.toEqual(game);
+    await expect(repository.getRoom("NONE23")).resolves.toBeNull();
+    await expect(repository.loadGame("missing-game")).resolves.toBeNull();
+    await expect(repository.saveGame()).rejects.toThrow("authoritative server");
+    expect(fetcher.mock.calls[1]?.[0]).toBe("https://example.test/api/rooms?code=ABC234");
+  });
+
+  it("maps realtime events, sends chat and cleans up subscriptions", async () => {
+    vi.useFakeTimers();
+    const storage = new MemoryStorage();
+    const unsubscribeRealtime = vi.fn();
+    const sendChat = vi.fn();
+    const captured: { listener?: (message: ServerRealtimeMessage) => void } = {};
+    const realtime = {
+      subscribe: vi.fn((_code: string, _token: string, listener: (message: ServerRealtimeMessage) => void) => {
+        captured.listener = listener;
+        return unsubscribeRealtime;
+      }),
+      sendChat,
+    } as unknown as RealtimeClient;
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ room, sessionToken: "s".repeat(32) }), { status: 201 }));
+    const repository = new OnlineGameRepository({ storage, fetcher, realtime });
+    await repository.createRoom({ name: room.name, host: profile, settings });
+    const listener = vi.fn();
+    const unsubscribe = repository.subscribe(room.code, listener);
+    const chat = {
+      id: "message-1",
+      clientMessageId: "client-1",
+      roomCode: room.code,
+      playerId: profile.id,
+      playerName: profile.name,
+      message: "Olá",
+      createdAt: "2026-07-18T12:00:00.000Z",
+    };
+
+    captured.listener?.({ type: "roomUpdated", roomCode: room.code });
+    captured.listener?.({ type: "gameUpdated", roomCode: room.code, gameId: "game-1", version: 1 });
+    captured.listener?.({ type: "connected", roomCode: room.code, playerId: profile.id });
+    captured.listener?.({ type: "chat", payload: chat });
+    await repository.sendChat(room.code, profile, "  Vamos!  ");
+    vi.advanceTimersByTime(5_000);
+
+    expect(listener).toHaveBeenCalledWith({ kind: "room", roomCode: room.code });
+    expect(listener).toHaveBeenCalledWith({ kind: "game", roomCode: room.code });
+    expect(listener).toHaveBeenCalledWith({ kind: "connection", roomCode: room.code, connected: true });
+    expect(listener).toHaveBeenCalledWith({ kind: "chat", roomCode: room.code, message: chat });
+    expect(sendChat).toHaveBeenCalledWith(room.code, "s".repeat(32), expect.any(String), "Vamos!");
+    unsubscribe();
+    expect(unsubscribeRealtime).toHaveBeenCalledOnce();
+  });
+
+  it("rejects operations without a matching local session", async () => {
+    const repository = new OnlineGameRepository({ storage: new MemoryStorage(), fetcher: vi.fn() });
+    await expect(repository.loadGame("game-1")).rejects.toThrow("No online session");
+    await expect(repository.setReady(room.code, profile.id, true)).rejects.toThrow("No session");
+    expect(repository.subscribe(room.code, vi.fn())).toBeTypeOf("function");
   });
 });

@@ -1,0 +1,24 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "vite",
+  "buildCommand": "pnpm build",
+  "outputDirectory": "dist",
+  "regions": ["iad1"],
+  "functions": {
+    "api/ws.ts": {
+      "maxDuration": 300
+    },
+    "api/rooms.ts": {
+      "maxDuration": 30
+    },
+    "api/game.ts": {
+      "maxDuration": 30
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

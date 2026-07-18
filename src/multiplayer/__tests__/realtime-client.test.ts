@@ -18,6 +18,7 @@ class FakeSocket implements WebSocketLike {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 describe("realtime client", () => {
@@ -67,5 +68,42 @@ describe("realtime client", () => {
 
     expect(listener).toHaveBeenCalledOnce();
     expect(listener).toHaveBeenCalledWith({ type: "roomUpdated", roomCode: "ABC234" });
+  });
+
+  it("sends chat and heartbeats while reporting protocol and socket failures", () => {
+    vi.useFakeTimers();
+    const socket = new FakeSocket();
+    const onProtocolError = vi.fn();
+    const client = new RealtimeClient({
+      url: "wss://example.test/api/ws",
+      socketFactory: () => socket,
+      onProtocolError,
+    });
+    client.subscribe("ABC234", "s".repeat(32), vi.fn());
+    expect(() => client.sendChat("ABC234", "s".repeat(32), "client-1", "Olá")).toThrow("not available");
+    socket.open();
+    client.sendChat("ABC234", "s".repeat(32), "client-1", "Olá");
+    vi.advanceTimersByTime(20_000);
+    socket.onmessage?.({ data: "not-json" });
+    socket.onerror?.();
+
+    expect(socket.sent.map((value) => JSON.parse(value) as { type: string }).map((message) => message.type))
+      .toEqual(["subscribe", "chat", "ping"]);
+    expect(onProtocolError).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the browser WebSocket constructor by default", () => {
+    const sockets: FakeSocket[] = [];
+    class BrowserFakeSocket extends FakeSocket {
+      constructor(readonly url: string) {
+        super();
+        sockets.push(this);
+      }
+    }
+    vi.stubGlobal("WebSocket", BrowserFakeSocket);
+    const client = new RealtimeClient({ url: "wss://example.test/api/ws" });
+    const unsubscribe = client.subscribe("ABC234", "s".repeat(32), vi.fn());
+    expect(sockets[0]).toMatchObject({ url: "wss://example.test/api/ws" });
+    unsubscribe();
   });
 });

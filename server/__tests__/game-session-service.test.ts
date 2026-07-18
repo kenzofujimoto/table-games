@@ -116,4 +116,29 @@ describe("authoritative online game sessions", () => {
     expect(view.players[1]!.developmentCards).toEqual([]);
     expect(view.players[1]!.developmentCardCount).toBe(1);
   });
+
+  it("stores authenticated chat, publishes it and enforces message limits", async () => {
+    const { service } = createService();
+    const host = await service.createRoom({ name: "Mesa", host: profiles[0]!, settings });
+
+    const message = await service.sendChat(host.room.code, host.sessionToken, "client-1", "  Olá, tripulação!  ");
+    expect(message).toMatchObject({
+      clientMessageId: "client-1",
+      playerId: "p1",
+      playerName: "Lia",
+      message: "Olá, tripulação!",
+    });
+    await expect(service.getChat(host.room.code, host.sessionToken, 500)).resolves.toEqual([message]);
+    await expect(service.sendChat(host.room.code, host.sessionToken, "client-2", "   ")).rejects.toThrow("between 1 and 280");
+  });
+
+  it("rejects chat when the room owner disabled it", async () => {
+    const { service } = createService();
+    const host = await service.createRoom({
+      name: "Mesa",
+      host: profiles[0]!,
+      settings: { ...settings, chatEnabled: false },
+    });
+    await expect(service.sendChat(host.room.code, host.sessionToken, "client-1", "Olá")).rejects.toThrow("Chat is disabled");
+  });
 });
