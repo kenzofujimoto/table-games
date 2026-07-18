@@ -194,6 +194,11 @@ export class OnlineGameRepository implements GameRepository {
     return parseGameState(value);
   }
 
+  async sendChat(roomCode: string, author: PlayerProfile, message: string): Promise<void> {
+    const session = this.requireSession(roomCode, author.id);
+    this.realtime.sendChat(roomCode.toUpperCase(), session.sessionToken, crypto.randomUUID(), message.trim());
+  }
+
   subscribe(roomCode: string, listener: (event: RepositoryEvent) => void): () => void {
     const session = this.getSession(roomCode);
     if (!session) return () => undefined;

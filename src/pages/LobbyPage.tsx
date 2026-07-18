@@ -5,6 +5,7 @@ import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { repository, useAppStore } from "@/app/store";
 import { createGame } from "@/game/application/game-engine";
 import { emptyResources, type Player } from "@/game/domain/types";
+import type { ChatMessage } from "@/multiplayer/protocol";
 import type { GameRoom, PlayerProfile } from "@/multiplayer/types";
 import { AppShell } from "@/shared/components/AppShell";
 
@@ -39,26 +40,40 @@ export function LobbyPage() {
   const [room, updateRoom] = useState<GameRoom | null>(storedRoom?.code === code ? storedRoom : null);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [chatInput, setChatInput] = useState("");
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const navigate = useNavigate();
 
   useEffect(() => {
     let active = true;
-    void repository.getRoom(code).then((nextRoom) => {
+    const syncRoom = async () => {
+      const nextRoom = await repository.getRoom(code);
       if (active && nextRoom) {
         updateRoom(nextRoom);
         setRoom(nextRoom);
+        if (nextRoom.status === "playing" && nextRoom.gameId) {
+          const game = await repository.loadGame(nextRoom.gameId);
+          if (game) {
+            setGame(game);
+            void navigate(`/jogo/${game.id}`);
+          }
+        }
+      }
+    };
+    void syncRoom().catch((caught: unknown) => {
+      if (active) setError(caught instanceof Error ? caught.message : "Não foi possível sincronizar a sala.");
+    });
+    const unsubscribe = repository.subscribe(code, (event) => {
+      if (event.kind === "chat") {
+        setMessages((current) => current.some((message) => message.id === event.message.id)
+          ? current
+          : [...current.slice(-49), event.message]);
+      } else {
+        void syncRoom();
       }
     });
-    const unsubscribe = repository.subscribe(code, () => {
-      void repository.getRoom(code).then((nextRoom) => {
-        if (active && nextRoom) {
-          updateRoom(nextRoom);
-          setRoom(nextRoom);
-        }
-      });
-    });
     return () => { active = false; unsubscribe(); };
-  }, [code, setRoom]);
+  }, [code, navigate, setGame, setRoom]);
 
   if (!profile) return <Navigate to={`/perfil?next=/sala/${code}`} replace />;
   if (!room) return <AppShell><main className="page-center"><div className="loading-orbit" /><p>Buscando sala…</p></main></AppShell>;
@@ -74,6 +89,7 @@ export function LobbyPage() {
     catch (caught) { setError(caught instanceof Error ? caught.message : "Falha ao atualizar prontidão."); }
   };
   const fillLocalSeats = async () => {
+    if (repository.kind !== "local") return;
     try {
       let next = room;
       for (const explorer of localExplorers) {
@@ -89,19 +105,31 @@ export function LobbyPage() {
   const start = async () => {
     try {
       const startedRoom = await repository.startGame(room.code, profile.id);
-      const game = createGame({
-        id: startedRoom.gameId!,
-        roomCode: room.code,
-        seed: `${room.code}-${Date.now().toString(36)}`,
-        players: startedRoom.players.map(roomPlayerToGamePlayer),
-        targetScore: room.settings.targetScore,
-        turnSeconds: room.settings.turnSeconds,
-      });
-      await repository.saveGame(game);
+      const game = repository.kind === "local"
+        ? createGame({
+          id: startedRoom.gameId!,
+          roomCode: room.code,
+          seed: `${room.code}-${Date.now().toString(36)}`,
+          players: startedRoom.players.map(roomPlayerToGamePlayer),
+          targetScore: room.settings.targetScore,
+          turnSeconds: room.settings.turnSeconds,
+        })
+        : await repository.loadGame(startedRoom.gameId!);
+      if (!game) throw new Error("A partida foi criada, mas o estado inicial não pôde ser carregado.");
+      if (repository.kind === "local") await repository.saveGame(game);
       refresh(startedRoom);
       setGame(game);
       void navigate(`/jogo/${game.id}`);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Não foi possível iniciar."); }
+  };
+  const sendChat = async () => {
+    if (!chatInput.trim()) return;
+    try {
+      await repository.sendChat(room.code, profile, chatInput);
+      setChatInput("");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Não foi possível enviar a mensagem.");
+    }
   };
   const copyInvite = async () => {
     const invite = `${window.location.origin}/perfil?next=/sala/${room.code}`;
@@ -112,7 +140,7 @@ export function LobbyPage() {
   return (
     <AppShell>
       <main className="lobby-page">
-        <header className="lobby-heading"><div><div className="eyebrow"><Radio size={14} /> SALA PRIVADA · MODO LOCAL</div><h1>{room.name}</h1><p>Todos devem estar prontos antes da partida começar.</p></div><button className="button button--ghost" type="button" onClick={() => void navigate("/")}><LogOut /> Sair</button></header>
+        <header className="lobby-heading"><div><div className="eyebrow"><Radio size={14} /> SALA PRIVADA · {repository.kind === "online" ? "ONLINE" : "MODO LOCAL"}</div><h1>{room.name}</h1><p>Todos devem estar prontos antes da partida começar.</p></div><button className="button button--ghost" type="button" onClick={() => void navigate("/")}><LogOut /> Sair</button></header>
         <div className="lobby-layout">
           <section className="lobby-panel">
             <div className="panel-title"><span><Users /> Exploradores</span><small>{room.players.length}/{room.settings.maxPlayers}</small></div>
@@ -129,14 +157,14 @@ export function LobbyPage() {
             </div>
             <div className="lobby-actions">
               {me && <button className={`button ${me.ready ? "button--ghost" : "button--secondary"}`} type="button" onClick={() => void toggleReady()}>{me.ready ? "Não estou pronto" : "Estou pronto"}</button>}
-              {isHost && room.players.length < room.settings.maxPlayers && <button className="button button--ghost" type="button" onClick={() => void fillLocalSeats()}><Bot /> Preencher para demonstração</button>}
+              {repository.kind === "local" && isHost && room.players.length < room.settings.maxPlayers && <button className="button button--ghost" type="button" onClick={() => void fillLocalSeats()}><Bot /> Preencher para demonstração</button>}
             </div>
           </section>
 
           <aside className="lobby-sidebar">
             <section className="lobby-panel invite-panel"><span className="panel-kicker">CÓDIGO DA SALA</span><button className="room-code" type="button" onClick={() => void copyInvite()}>{room.code}<Clipboard /></button><button className="copy-link" type="button" onClick={() => void copyInvite()}>{copied ? <><Check /> Link copiado</> : <><Link2 /> Copiar link do convite</>}</button></section>
             <section className="lobby-panel settings-summary"><div className="panel-title"><span>Configuração</span></div><dl><div><dt>Mapa</dt><dd>Ilha clássica</dd></div><div><dt>Vitória</dt><dd>{room.settings.targetScore} pontos</dd></div><div><dt>Turno</dt><dd>{room.settings.turnSeconds / 60} min</dd></div><div><dt>Terrenos</dt><dd>Equilibrados</dd></div><div><dt>Espectadores</dt><dd>{room.settings.allowSpectators ? "Permitidos" : "Bloqueados"}</dd></div></dl></section>
-            <section className="lobby-panel lobby-chat"><div className="panel-title"><span><MessageCircle /> Chat do lobby</span></div><div className="chat-placeholder"><p>Mensagens locais desta sala aparecem aqui.</p></div><input className="text-input" placeholder="Enviar mensagem…" disabled={!room.settings.chatEnabled} /></section>
+            <section className="lobby-panel lobby-chat"><div className="panel-title"><span><MessageCircle /> Chat do lobby</span></div><div className="chat-messages">{messages.length === 0 ? <div className="chat-placeholder"><p>As mensagens da expedição aparecerão aqui.</p></div> : messages.map((message) => <p key={message.id}><strong>{message.playerName}</strong><span>{message.message}</span></p>)}</div><form onSubmit={(event) => { event.preventDefault(); void sendChat(); }}><input className="text-input" value={chatInput} onChange={(event) => setChatInput(event.target.value)} maxLength={280} placeholder="Enviar mensagem…" disabled={!room.settings.chatEnabled} /><button type="submit" disabled={!chatInput.trim()}>Enviar</button></form></section>
           </aside>
         </div>
         {error && <div className="floating-error" role="alert">{error}</div>}

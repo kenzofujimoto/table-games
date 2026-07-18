@@ -61,7 +61,8 @@ export class LocalGameRepository implements GameRepository {
   private isRepositoryEvent(value: unknown): value is RepositoryEvent {
     if (typeof value !== "object" || value === null) return false;
     const candidate = value as Record<string, unknown>;
-    return (candidate.kind === "room" || candidate.kind === "game") && typeof candidate.roomCode === "string";
+    return ["room", "game", "chat", "connection"].includes(String(candidate.kind))
+      && typeof candidate.roomCode === "string";
   }
 
   private rooms(): Record<string, GameRoom> {
@@ -200,6 +201,24 @@ export class LocalGameRepository implements GameRepository {
     const next = applyGameCommand(state, command);
     await this.saveGame(next);
     return next;
+  }
+
+  async sendChat(roomCode: string, author: PlayerProfile, rawMessage: string): Promise<void> {
+    const message = rawMessage.trim();
+    if (message.length < 1 || message.length > 280) throw new Error("A mensagem deve ter entre 1 e 280 caracteres");
+    this.emit({
+      kind: "chat",
+      roomCode: normalizeCode(roomCode),
+      message: {
+        id: crypto.randomUUID(),
+        clientMessageId: crypto.randomUUID(),
+        roomCode: normalizeCode(roomCode),
+        playerId: author.id,
+        playerName: author.name,
+        message,
+        createdAt: new Date().toISOString(),
+      },
+    });
   }
 
   subscribe(roomCode: string, listener: (event: RepositoryEvent) => void): () => void {

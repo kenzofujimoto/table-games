@@ -9,6 +9,7 @@ import { RESOURCE_META } from "./resource-meta";
 
 interface ModalProps {
   state: GameState;
+  viewerId: string;
   dispatch: (command: GameCommand) => Promise<GameState | null>;
   onClose: () => void;
 }
@@ -17,40 +18,41 @@ function ModalFrame({ title, icon, children, onClose }: { title: string; icon: R
   return <div className="modal-backdrop" role="presentation"><section className="game-modal" role="dialog" aria-modal="true" aria-label={title}><header><span>{icon}</span><div><small>AÇÃO DA PARTIDA</small><h2>{title}</h2></div><button type="button" onClick={onClose} aria-label="Fechar"><X /></button></header>{children}</section></div>;
 }
 
-export function TradeModal({ state, dispatch, onClose }: ModalProps) {
+export function TradeModal({ state, viewerId, dispatch, onClose }: ModalProps) {
   const active = state.players[state.activePlayerIndex]!;
+  const viewer = state.players.find((player) => player.id === viewerId)!;
   const [tab, setTab] = useState<"players" | "bank">("players");
   const [give, setGive] = useState<Resource>("wood");
   const [receive, setReceive] = useState<Resource>("ore");
-  const [targetId, setTargetId] = useState(state.players.find((player) => player.id !== active.id)?.id ?? "");
+  const [targetId, setTargetId] = useState(state.players.find((player) => player.id !== viewer.id)?.id ?? "");
   const openTrade = state.trades.find((trade) => trade.status === "open");
 
   const submit = async () => {
     if (tab === "bank") {
-      await dispatch({ id: crypto.randomUUID(), type: "bankTrade", actorId: active.id, give, receive, ratio: 4 });
+      await dispatch({ id: crypto.randomUUID(), type: "bankTrade", actorId: viewer.id, give, receive, ratio: 4 });
       onClose();
       return;
     }
     const offer = { ...emptyResources(), [give]: 1 };
     const request = { ...emptyResources(), [receive]: 1 };
-    await dispatch({ id: crypto.randomUUID(), type: "proposeTrade", actorId: active.id, offer, request, targetPlayerIds: [targetId] });
+    await dispatch({ id: crypto.randomUUID(), type: "proposeTrade", actorId: viewer.id, offer, request, targetPlayerIds: [targetId] });
   };
 
   return <ModalFrame title="Mesa de comércio" icon={<ArrowRightLeft />} onClose={onClose}>
     <div className="modal-tabs"><button className={tab === "players" ? "is-active" : ""} type="button" onClick={() => setTab("players")}>Com jogadores</button><button className={tab === "bank" ? "is-active" : ""} type="button" onClick={() => setTab("bank")}>Com o banco</button></div>
     {openTrade ? <div className="open-trade"><span className="status-pill">PROPOSTA ABERTA</span><p><strong>{state.players.find((player) => player.id === openTrade.proposerId)?.name}</strong> oferece {Object.entries(openTrade.offer).filter(([, amount]) => amount > 0).map(([resource, amount]) => `${amount} ${RESOURCE_META[resource as Resource].label}`).join(", ")} por {Object.entries(openTrade.request).filter(([, amount]) => amount > 0).map(([resource, amount]) => `${amount} ${RESOURCE_META[resource as Resource].label}`).join(", ")}.</p>
-      <div className="trade-responses">{openTrade.targetPlayerIds.map((playerId) => <div key={playerId}><span>Responder como {state.players.find((player) => player.id === playerId)?.name}</span><button className="button button--secondary" type="button" onClick={() => void dispatch({ id: crypto.randomUUID(), type: "respondTrade", actorId: playerId, tradeId: openTrade.id, response: "accept" })}><Check /> Aceitar</button><button className="button button--ghost" type="button" onClick={() => void dispatch({ id: crypto.randomUUID(), type: "respondTrade", actorId: playerId, tradeId: openTrade.id, response: "reject" })}>Recusar</button></div>)}</div>
+      {openTrade.targetPlayerIds.includes(viewer.id) ? <div className="trade-responses"><div><span>Responder como {viewer.name}</span><button className="button button--secondary" type="button" onClick={() => void dispatch({ id: crypto.randomUUID(), type: "respondTrade", actorId: viewer.id, tradeId: openTrade.id, response: "accept" })}><Check /> Aceitar</button><button className="button button--ghost" type="button" onClick={() => void dispatch({ id: crypto.randomUUID(), type: "respondTrade", actorId: viewer.id, tradeId: openTrade.id, response: "reject" })}>Recusar</button></div></div> : <p className="modal-note">Aguardando a resposta dos exploradores convidados.</p>}
     </div> : <>
-      <div className="trade-builder"><label><span>Você oferece</span><select className="text-input" value={give} onChange={(event) => setGive(event.target.value as Resource)}>{RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{RESOURCE_META[resource].label} ({active.resources[resource]})</option>)}</select></label><ArrowRightLeft /><label><span>Você recebe</span><select className="text-input" value={receive} onChange={(event) => setReceive(event.target.value as Resource)}>{RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{RESOURCE_META[resource].label}</option>)}</select></label></div>
-      {tab === "players" && <label className="field"><span>Destinatário</span><select className="text-input" value={targetId} onChange={(event) => setTargetId(event.target.value)}>{state.players.filter((player) => player.id !== active.id).map((player) => <option value={player.id} key={player.id}>{player.name}</option>)}</select></label>}
+      <div className="trade-builder"><label><span>Você oferece</span><select className="text-input" value={give} onChange={(event) => setGive(event.target.value as Resource)}>{RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{RESOURCE_META[resource].label} ({viewer.resources[resource]})</option>)}</select></label><ArrowRightLeft /><label><span>Você recebe</span><select className="text-input" value={receive} onChange={(event) => setReceive(event.target.value as Resource)}>{RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{RESOURCE_META[resource].label}</option>)}</select></label></div>
+      {tab === "players" && <label className="field"><span>Destinatário</span><select className="text-input" value={targetId} onChange={(event) => setTargetId(event.target.value)}>{state.players.filter((player) => player.id !== viewer.id).map((player) => <option value={player.id} key={player.id}>{player.name}</option>)}</select></label>}
       {tab === "bank" && <p className="modal-note">Taxa atual: 4 recursos por 1. Portos válidos habilitam 3:1 ou 2:1 automaticamente no motor.</p>}
-      <button className="button button--primary button--full" type="button" disabled={give === receive || active.resources[give] < (tab === "bank" ? 4 : 1)} onClick={() => void submit()}>{tab === "bank" ? "Negociar com o banco" : "Enviar proposta"}</button>
+      <button className="button button--primary button--full" type="button" disabled={active.id !== viewer.id || give === receive || viewer.resources[give] < (tab === "bank" ? 4 : 1)} onClick={() => void submit()}>{tab === "bank" ? "Negociar com o banco" : "Enviar proposta"}</button>
     </>}
   </ModalFrame>;
 }
 
-export function DevelopmentModal({ state, dispatch, onClose }: ModalProps) {
-  const active = state.players[state.activePlayerIndex]!;
+export function DevelopmentModal({ state, viewerId, dispatch, onClose }: ModalProps) {
+  const active = state.players.find((player) => player.id === viewerId)!;
   const play = async (cardId: string, kind: string) => {
     let command: GameCommand;
     if (kind === "monopoly") command = { id: crypto.randomUUID(), type: "playDevelopmentCard", actorId: active.id, cardId, resource: "ore" };
@@ -72,8 +74,8 @@ export function DevelopmentModal({ state, dispatch, onClose }: ModalProps) {
   </ModalFrame>;
 }
 
-export function DiscardModal({ state, dispatch }: Omit<ModalProps, "onClose">) {
-  const pending = Object.entries(state.pendingDiscards);
+export function DiscardModal({ state, viewerId, dispatch }: Omit<ModalProps, "onClose">) {
+  const pending = Object.entries(state.pendingDiscards).filter(([playerId]) => playerId === viewerId);
   const discardAutomatically = async (playerId: string, required: number) => {
     const player = state.players.find((candidate) => candidate.id === playerId)!;
     let remaining = required;
@@ -85,5 +87,5 @@ export function DiscardModal({ state, dispatch }: Omit<ModalProps, "onClose">) {
     }, emptyResources());
     await dispatch({ id: crypto.randomUUID(), type: "discardResources", actorId: playerId, resources });
   };
-  return <div className="modal-backdrop"><section className="game-modal" role="dialog" aria-modal="true" aria-label="Descartar recursos"><header><span><Dices /></span><div><small>RESULTADO 7</small><h2>O andarilho chegou</h2></div></header><p className="modal-note">Jogadores com mais de sete cartas descartam metade, arredondando para baixo.</p><div className="discard-list">{pending.map(([playerId, amount]) => <article key={playerId}><span className={`avatar-token avatar-token--${state.players.find((player) => player.id === playerId)?.color}`}>{state.players.find((player) => player.id === playerId)?.name[0]}</span><div><strong>{state.players.find((player) => player.id === playerId)?.name}</strong><small>Deve descartar {amount} cartas</small></div><button className="button button--secondary" type="button" onClick={() => void discardAutomatically(playerId, amount)}>Escolher automaticamente</button></article>)}</div></section></div>;
+  return <div className="modal-backdrop"><section className="game-modal" role="dialog" aria-modal="true" aria-label="Descartar recursos"><header><span><Dices /></span><div><small>RESULTADO 7</small><h2>O andarilho chegou</h2></div></header><p className="modal-note">Jogadores com mais de sete cartas descartam metade, arredondando para baixo.</p><div className="discard-list">{pending.length === 0 ? <div className="empty-modal"><p>Aguardando os outros exploradores descartarem.</p></div> : pending.map(([playerId, amount]) => <article key={playerId}><span className={`avatar-token avatar-token--${state.players.find((player) => player.id === playerId)?.color}`}>{state.players.find((player) => player.id === playerId)?.name[0]}</span><div><strong>{state.players.find((player) => player.id === playerId)?.name}</strong><small>Deve descartar {amount} cartas</small></div><button className="button button--secondary" type="button" onClick={() => void discardAutomatically(playerId, amount)}>Escolher automaticamente</button></article>)}</div></section></div>;
 }
