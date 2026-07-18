@@ -2,13 +2,19 @@
 
 import type { AddressInfo } from "node:net";
 
-import WebSocket from "ws";
+import WebSocket, { type RawData } from "ws";
 import { afterAll, describe, expect, it } from "vitest";
 
 import server from "../../api/ws";
 import type { ServerRealtimeMessage } from "../../src/multiplayer/protocol";
 import type { RoomSettings } from "../../src/multiplayer/types";
 import { getGameSessionService } from "../game-session-service-factory";
+
+function decodeMessage(data: RawData): string {
+  if (Array.isArray(data)) return Buffer.concat(data).toString("utf8");
+  if (data instanceof ArrayBuffer) return Buffer.from(data).toString("utf8");
+  return data.toString("utf8");
+}
 
 const settings: RoomSettings = {
   visibility: "private",
@@ -55,7 +61,7 @@ describe("WebSocket API", () => {
         socket.send(JSON.stringify({ type: "ping", sentAt: 1234 }));
       });
       socket.on("message", (data) => {
-        messages.push(JSON.parse(data.toString()) as ServerRealtimeMessage);
+        messages.push(JSON.parse(decodeMessage(data)) as ServerRealtimeMessage);
         if (messages.some((message) => message.type === "connected") && messages.some((message) => message.type === "pong")) {
           clearTimeout(timeout);
           resolve();
