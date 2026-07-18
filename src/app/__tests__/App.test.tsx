@@ -73,6 +73,7 @@ describe("Auren application shell", () => {
     const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
 
     render(<App />);
+    expect(await screen.findByText("Faltam 2 jogadores")).toBeInTheDocument();
     await user.click(await screen.findByRole("button", { name: /Copiar link do convite/i }));
 
     expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/entrar?code=${room.code}`);
