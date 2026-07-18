@@ -34,7 +34,7 @@ describe("Auren application shell", () => {
     window.history.pushState({}, "", "/regras");
     render(<App />);
     expect(screen.getByRole("heading", { name: /Regras de bordo/i })).toBeInTheDocument();
-    expect(screen.getByText(/Estrada/i)).toBeInTheDocument();
+    expect(screen.getByText("Estrada", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByText(/Maior rota/i)).toBeInTheDocument();
   });
 });
