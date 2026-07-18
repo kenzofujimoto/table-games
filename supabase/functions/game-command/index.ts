@@ -10,17 +10,40 @@ const corsHeaders = {
 };
 
 const resourceSchema = z.enum(["wood", "brick", "wool", "grain", "ore"]);
+const resourceCountsSchema = z.object({
+  wood: z.number().int().nonnegative(),
+  brick: z.number().int().nonnegative(),
+  wool: z.number().int().nonnegative(),
+  grain: z.number().int().nonnegative(),
+  ore: z.number().int().nonnegative(),
+});
 const commandSchema = z.discriminatedUnion("type", [
   z.object({ id: z.uuid(), type: z.literal("placeSettlement"), vertexId: z.string() }),
   z.object({ id: z.uuid(), type: z.literal("placeRoad"), edgeId: z.string() }),
   z.object({ id: z.uuid(), type: z.literal("rollDice") }),
-  z.object({ id: z.uuid(), type: z.literal("discardResources"), resources: z.record(resourceSchema, z.number().int().nonnegative()) }),
+  z.object({ id: z.uuid(), type: z.literal("discardResources"), resources: resourceCountsSchema }),
   z.object({ id: z.uuid(), type: z.literal("moveRobber"), tileId: z.string(), victimId: z.string().nullable() }),
   z.object({ id: z.uuid(), type: z.literal("buildRoad"), edgeId: z.string() }),
   z.object({ id: z.uuid(), type: z.literal("buildSettlement"), vertexId: z.string() }),
   z.object({ id: z.uuid(), type: z.literal("upgradeCity"), vertexId: z.string() }),
   z.object({ id: z.uuid(), type: z.literal("bankTrade"), give: resourceSchema, receive: resourceSchema, ratio: z.union([z.literal(2), z.literal(3), z.literal(4)]) }),
   z.object({ id: z.uuid(), type: z.literal("buyDevelopmentCard") }),
+  z.object({
+    id: z.uuid(),
+    type: z.literal("playDevelopmentCard"),
+    cardId: z.string(),
+    resource: resourceSchema.optional(),
+    resources: z.tuple([resourceSchema, resourceSchema]).optional(),
+    edgeIds: z.union([z.tuple([z.string()]), z.tuple([z.string(), z.string()])]).optional(),
+  }),
+  z.object({
+    id: z.uuid(),
+    type: z.literal("proposeTrade"),
+    offer: resourceCountsSchema,
+    request: resourceCountsSchema,
+    targetPlayerIds: z.array(z.string()).min(1),
+  }),
+  z.object({ id: z.uuid(), type: z.literal("respondTrade"), tradeId: z.string(), response: z.enum(["accept", "reject"]) }),
   z.object({ id: z.uuid(), type: z.literal("endTurn") }),
 ]);
 

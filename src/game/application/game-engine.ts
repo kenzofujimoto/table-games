@@ -1,6 +1,6 @@
 import { determineLargestArmy, determineLongestRoadOwner } from "../domain/achievements";
 import { generateBoard } from "../domain/board-generator";
-import { drawDevelopmentCard, createDevelopmentDeck } from "../domain/development-cards";
+import { applyMonopoly, canPlayDevelopmentCard, drawDevelopmentCard, createDevelopmentDeck } from "../domain/development-cards";
 import { BUILD_COSTS, canAfford, payCost, totalResources } from "../domain/economy";
 import { canBuildRoad, canBuildSettlement } from "../domain/placement";
 import { distributeProduction } from "../domain/production";
@@ -43,6 +43,9 @@ export type GameEventType =
   | "resourceStolen"
   | "bankTrade"
   | "developmentCardBought"
+  | "developmentCardPlayed"
+  | "tradeProposed"
+  | "tradeCompleted"
   | "turnEnded"
   | "victory";
 
@@ -52,6 +55,16 @@ export interface GameEvent {
   actorId: string | null;
   message: string;
   turn: number;
+}
+
+export interface TradeOffer {
+  id: string;
+  proposerId: string;
+  offer: ResourceCounts;
+  request: ResourceCounts;
+  targetPlayerIds: string[];
+  status: "open" | "accepted" | "rejected" | "expired";
+  responderId: string | null;
 }
 
 export interface GameState {
@@ -76,6 +89,7 @@ export interface GameState {
   events: GameEvent[];
   appliedCommandIds: string[];
   winnerId: string | null;
+  trades: TradeOffer[];
 }
 
 interface BaseCommand {
@@ -94,6 +108,20 @@ export type GameCommand =
   | (BaseCommand & { type: "upgradeCity"; vertexId: string })
   | (BaseCommand & { type: "bankTrade"; give: Resource; receive: Resource; ratio: 2 | 3 | 4 })
   | (BaseCommand & { type: "buyDevelopmentCard" })
+  | (BaseCommand & {
+      type: "playDevelopmentCard";
+      cardId: string;
+      resource?: Resource;
+      resources?: [Resource, Resource];
+      edgeIds?: [string, string] | [string];
+    })
+  | (BaseCommand & {
+      type: "proposeTrade";
+      offer: ResourceCounts;
+      request: ResourceCounts;
+      targetPlayerIds: string[];
+    })
+  | (BaseCommand & { type: "respondTrade"; tradeId: string; response: "accept" | "reject" })
   | (BaseCommand & { type: "endTurn" });
 
 interface EngineDependencies {
@@ -241,6 +269,7 @@ export function createGame(input: CreateGameInput): GameState {
     events: [{ id: "event-0", type: "gameStarted", actorId: null, message: "A expedição começou.", turn: 1 }],
     appliedCommandIds: [],
     winnerId: null,
+    trades: [],
   };
 }
 
@@ -481,6 +510,119 @@ function buyDevelopmentCard(state: GameState, command: Extract<GameCommand, { ty
   return next;
 }
 
+function proposeTrade(state: GameState, command: Extract<GameCommand, { type: "proposeTrade" }>): GameState {
+  assertActivePlayer(state, command.actorId);
+  if (state.phase !== "actions") throw new Error("Player trading is not available now");
+  if (state.trades.some((trade) => trade.status === "open")) throw new Error("Resolve the current trade first");
+  if (totalResources(command.offer) <= 0 || totalResources(command.request) <= 0) throw new Error("A trade needs offered and requested resources");
+  const player = state.players.find((candidate) => candidate.id === command.actorId)!;
+  if (RESOURCE_TYPES.some((resource) => command.offer[resource] > player.resources[resource])) throw new Error("Insufficient offered resources");
+  const validTargets = command.targetPlayerIds.filter((id) => id !== command.actorId && state.players.some((player) => player.id === id));
+  if (validTargets.length === 0) throw new Error("Select at least one valid trade recipient");
+
+  const next = withCommandApplied({ ...state, trades: [...state.trades], events: [...state.events] }, command.id);
+  next.trades.push({
+    id: command.id,
+    proposerId: command.actorId,
+    offer: { ...command.offer },
+    request: { ...command.request },
+    targetPlayerIds: validTargets,
+    status: "open",
+    responderId: null,
+  });
+  next.events.push(event(next, "tradeProposed", command.actorId, `${player.name} propôs uma troca.`));
+  return next;
+}
+
+function respondTrade(state: GameState, command: Extract<GameCommand, { type: "respondTrade" }>): GameState {
+  if (state.phase !== "actions") throw new Error("Player trading is not available now");
+  const trade = state.trades.find((candidate) => candidate.id === command.tradeId);
+  if (!trade || trade.status !== "open") throw new Error("Trade is no longer available");
+  if (!trade.targetPlayerIds.includes(command.actorId)) throw new Error("Player is not a recipient of this trade");
+  if (command.response === "reject") {
+    const next = withCommandApplied({ ...state, trades: state.trades.map((candidate) => candidate.id === trade.id
+      ? { ...candidate, status: "rejected", responderId: command.actorId }
+      : candidate), events: [...state.events] }, command.id);
+    next.events.push(event(next, "tradeCompleted", command.actorId, "A proposta de troca foi recusada."));
+    return next;
+  }
+
+  const proposer = state.players.find((player) => player.id === trade.proposerId)!;
+  const responder = state.players.find((player) => player.id === command.actorId)!;
+  if (RESOURCE_TYPES.some((resource) => proposer.resources[resource] < trade.offer[resource])) throw new Error("The proposer no longer has the offered resources");
+  if (RESOURCE_TYPES.some((resource) => responder.resources[resource] < trade.request[resource])) throw new Error("The responder lacks the requested resources");
+  const next = withCommandApplied({ ...state, players: clonePlayers(state.players), trades: state.trades.map((candidate) => candidate.id === trade.id
+    ? { ...candidate, status: "accepted", responderId: command.actorId }
+    : candidate), events: [...state.events] }, command.id);
+  const nextProposer = next.players.find((player) => player.id === trade.proposerId)!;
+  const nextResponder = next.players.find((player) => player.id === command.actorId)!;
+  for (const resource of RESOURCE_TYPES) {
+    nextProposer.resources[resource] += trade.request[resource] - trade.offer[resource];
+    nextResponder.resources[resource] += trade.offer[resource] - trade.request[resource];
+  }
+  next.events.push(event(next, "tradeCompleted", command.actorId, `${nextProposer.name} e ${nextResponder.name} concluíram uma troca.`));
+  return next;
+}
+
+function playDevelopmentCard(
+  state: GameState,
+  command: Extract<GameCommand, { type: "playDevelopmentCard" }>,
+): GameState {
+  assertActivePlayer(state, command.actorId);
+  if (state.phase !== "actions") throw new Error("A development card cannot be played now");
+  if (state.usedDevelopmentCardThisTurn) throw new Error("Only one development card can be played per turn");
+  const player = state.players.find((candidate) => candidate.id === command.actorId)!;
+  const card = player.developmentCards.find((candidate) => candidate.id === command.cardId);
+  if (!card) throw new Error("Development card was not found");
+  if (!canPlayDevelopmentCard(card, state.turnNumber, state.usedDevelopmentCardThisTurn)) {
+    throw new Error("This development card cannot be played this turn");
+  }
+
+  const next = withCommandApplied({
+    ...state,
+    board: cloneBoard(state.board),
+    players: clonePlayers(state.players),
+    bank: { ...state.bank },
+    events: [...state.events],
+  }, command.id);
+  const nextPlayer = next.players.find((candidate) => candidate.id === command.actorId)!;
+  nextPlayer.developmentCards = nextPlayer.developmentCards.filter((candidate) => candidate.id !== command.cardId);
+
+  if (card.kind === "monopoly") {
+    if (!command.resource) throw new Error("Choose a resource for monopoly");
+    next.players = applyMonopoly(next.players, command.actorId, command.resource);
+  } else if (card.kind === "yearOfPlenty") {
+    if (!command.resources) throw new Error("Choose two resources from the bank");
+    const demand = command.resources.reduce<Partial<ResourceCounts>>((counts, resource) => ({
+      ...counts,
+      [resource]: (counts[resource] ?? 0) + 1,
+    }), {});
+    if (RESOURCE_TYPES.some((resource) => (demand[resource] ?? 0) > next.bank[resource])) throw new Error("The bank cannot provide those resources");
+    for (const resource of command.resources) {
+      nextPlayer.resources[resource] += 1;
+      next.bank[resource] -= 1;
+    }
+  } else if (card.kind === "roadBuilding") {
+    if (!command.edgeIds) throw new Error("Choose one or two road positions");
+    for (const edgeId of command.edgeIds) {
+      if (nextPlayer.remainingPieces.roads <= 0) break;
+      if (!canBuildRoad(next.board, edgeId, command.actorId)) throw new Error("Invalid free road position");
+      next.board.edges.find((edge) => edge.id === edgeId)!.roadPlayerId = command.actorId;
+      nextPlayer.remainingPieces.roads -= 1;
+    }
+    refreshAchievements(next);
+  } else if (card.kind === "knight") {
+    nextPlayer.playedKnights += 1;
+    next.phase = "robber";
+    refreshAchievements(next);
+  }
+
+  next.usedDevelopmentCardThisTurn = true;
+  next.events.push(event(next, "developmentCardPlayed", command.actorId, `${nextPlayer.name} usou uma carta de horizonte.`));
+  evaluateVictory(next, command.actorId);
+  return next;
+}
+
 function endTurn(state: GameState, command: Extract<GameCommand, { type: "endTurn" }>): GameState {
   assertActivePlayer(state, command.actorId);
   if (state.phase !== "actions") throw new Error("The turn cannot end now");
@@ -491,6 +633,7 @@ function endTurn(state: GameState, command: Extract<GameCommand, { type: "endTur
   next.phase = "roll";
   next.dice = null;
   next.usedDevelopmentCardThisTurn = false;
+  next.trades = next.trades.map((trade) => trade.status === "open" ? { ...trade, status: "expired" } : trade);
   return next;
 }
 
@@ -514,6 +657,9 @@ export function applyGameCommand(
     case "upgradeCity": return upgradeCity(state, command);
     case "bankTrade": return bankTrade(state, command);
     case "buyDevelopmentCard": return buyDevelopmentCard(state, command, random);
+    case "playDevelopmentCard": return playDevelopmentCard(state, command);
+    case "proposeTrade": return proposeTrade(state, command);
+    case "respondTrade": return respondTrade(state, command);
     case "endTurn": return endTurn(state, command);
   }
 }

@@ -313,7 +313,7 @@ describe("construction, purchases and defensive validation", () => {
 describe("player trades and development cards", () => {
   it("opens a targeted trade and transfers resources only after acceptance", () => {
     const setup = completeSetup().state;
-    let state = {
+    let state: GameState = {
       ...setup,
       phase: "actions" as const,
       players: setup.players.map((player) => ({
@@ -349,7 +349,7 @@ describe("player trades and development cards", () => {
   it("plays monopoly only from a previous turn and only once per turn", () => {
     const setup = completeSetup().state;
     const monopolyCard = { id: "monopoly-card", kind: "monopoly" as const, purchasedTurn: 1, revealed: false };
-    let state = {
+    let state: GameState = {
       ...setup,
       phase: "actions" as const,
       turnNumber: 2,
@@ -385,11 +385,13 @@ describe("player trades and development cards", () => {
       { id: "plenty", kind: "yearOfPlenty" as const, purchasedTurn: 1, revealed: false },
       { id: "knight", kind: "knight" as const, purchasedTurn: 1, revealed: false },
     ];
-    let state = {
+    let state: GameState = {
       ...setup,
       phase: "actions" as const,
       turnNumber: 2,
-      players: setup.players.map((player) => player.id === "p1" ? { ...player, developmentCards: cards } : player),
+      players: setup.players.map((player) => player.id === "p1"
+        ? { ...player, resources: emptyResources(), developmentCards: cards }
+        : { ...player, resources: emptyResources() }),
     };
     state = applyGameCommand(state, {
       id: "play-plenty",
@@ -409,5 +411,219 @@ describe("player trades and development cards", () => {
     });
     expect(state.phase).toBe("robber");
     expect(state.players[0]!.playedKnights).toBe(1);
+  });
+
+  it("validates trade contents, recipients and one open proposal at a time", () => {
+    const setup = completeSetup().state;
+    const base: GameState = {
+      ...setup,
+      phase: "actions",
+      players: setup.players.map((player) => ({
+        ...player,
+        resources: player.id === "p1"
+          ? { ...emptyResources(), wood: 1 }
+          : player.id === "p2" ? { ...emptyResources(), ore: 1 } : emptyResources(),
+      })),
+    };
+    expect(() => applyGameCommand(base, {
+      id: "empty-trade",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: emptyResources(),
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2"],
+    })).toThrow("offered and requested");
+    expect(() => applyGameCommand(base, {
+      id: "invalid-target",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: { ...emptyResources(), wood: 1 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["unknown"],
+    })).toThrow("valid trade recipient");
+
+    const open = applyGameCommand(base, {
+      id: "open-trade",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: { ...emptyResources(), wood: 1 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2"],
+    });
+    expect(() => applyGameCommand(open, {
+      id: "second-trade",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: { ...emptyResources(), wood: 1 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2"],
+    })).toThrow("current trade");
+    expect(() => applyGameCommand(open, {
+      id: "wrong-responder",
+      type: "respondTrade",
+      actorId: "p3",
+      tradeId: "open-trade",
+      response: "accept",
+    })).toThrow("not a recipient");
+    const rejected = applyGameCommand(open, {
+      id: "reject-trade",
+      type: "respondTrade",
+      actorId: "p2",
+      tradeId: "open-trade",
+      response: "reject",
+    });
+    expect(rejected.trades[0]!.status).toBe("rejected");
+    expect(() => applyGameCommand(rejected, {
+      id: "late-response",
+      type: "respondTrade",
+      actorId: "p2",
+      tradeId: "open-trade",
+      response: "accept",
+    })).toThrow("no longer available");
+  });
+
+  it("validates development-card timing, options and free road placement", () => {
+    const setup = completeSetup().state;
+    const roadCard = { id: "free-roads", kind: "roadBuilding" as const, purchasedTurn: 1, revealed: false };
+    const monopolyCard = { id: "mono", kind: "monopoly" as const, purchasedTurn: 1, revealed: false };
+    const state: GameState = {
+      ...setup,
+      phase: "actions",
+      turnNumber: 2,
+      players: setup.players.map((player) => player.id === "p1"
+        ? { ...player, developmentCards: [roadCard, monopolyCard] }
+        : player),
+    };
+    expect(() => applyGameCommand(state, {
+      id: "missing-option",
+      type: "playDevelopmentCard",
+      actorId: "p1",
+      cardId: "mono",
+    })).toThrow("Choose a resource");
+    expect(() => applyGameCommand(state, {
+      id: "missing-roads",
+      type: "playDevelopmentCard",
+      actorId: "p1",
+      cardId: "free-roads",
+    })).toThrow("Choose one or two road positions");
+    const edgeId = validRoadEdges(state.board, "p1")[0]!;
+    const played = applyGameCommand(state, {
+      id: "free-road",
+      type: "playDevelopmentCard",
+      actorId: "p1",
+      cardId: "free-roads",
+      edgeIds: [edgeId],
+    });
+    expect(played.board.edges.find((edge) => edge.id === edgeId)?.roadPlayerId).toBe("p1");
+    expect(played.players[0]!.remainingPieces.roads).toBe(12);
+  });
+
+  it("rejects stale trade resources and unusable development cards", () => {
+    const setup = completeSetup().state;
+    const base: GameState = {
+      ...setup,
+      phase: "actions",
+      turnNumber: 2,
+      players: setup.players.map((player) => ({ ...player, resources: emptyResources(), developmentCards: [] })),
+    };
+    expect(() => applyGameCommand(base, {
+      id: "unfunded-trade",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: { ...emptyResources(), wood: 1 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2"],
+    })).toThrow("Insufficient offered resources");
+
+    const funded: GameState = {
+      ...base,
+      players: base.players.map((player) => ({
+        ...player,
+        resources: player.id === "p1"
+          ? { ...emptyResources(), wood: 1 }
+          : player.id === "p2" ? { ...emptyResources(), ore: 1 } : emptyResources(),
+      })),
+    };
+    const open = applyGameCommand(funded, {
+      id: "stale-offer",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: { ...emptyResources(), wood: 1 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2"],
+    });
+    const staleProposer: GameState = {
+      ...open,
+      players: open.players.map((player) => player.id === "p1" ? { ...player, resources: emptyResources() } : player),
+    };
+    expect(() => applyGameCommand(staleProposer, {
+      id: "stale-proposer-response",
+      type: "respondTrade",
+      actorId: "p2",
+      tradeId: "stale-offer",
+      response: "accept",
+    })).toThrow("proposer no longer has");
+    const staleResponder: GameState = {
+      ...open,
+      players: open.players.map((player) => player.id === "p2" ? { ...player, resources: emptyResources() } : player),
+    };
+    expect(() => applyGameCommand(staleResponder, {
+      id: "stale-responder-response",
+      type: "respondTrade",
+      actorId: "p2",
+      tradeId: "stale-offer",
+      response: "accept",
+    })).toThrow("responder lacks");
+    expect(() => applyGameCommand(base, {
+      id: "missing-card",
+      type: "playDevelopmentCard",
+      actorId: "p1",
+      cardId: "missing",
+    })).toThrow("was not found");
+
+    const newCardState: GameState = {
+      ...base,
+      players: base.players.map((player) => player.id === "p1" ? {
+        ...player,
+        developmentCards: [{ id: "new-knight", kind: "knight", purchasedTurn: 2, revealed: false }],
+      } : player),
+    };
+    expect(() => applyGameCommand(newCardState, {
+      id: "new-card",
+      type: "playDevelopmentCard",
+      actorId: "p1",
+      cardId: "new-knight",
+    })).toThrow("cannot be played this turn");
+
+    const scarceBankState: GameState = {
+      ...base,
+      bank: { ...base.bank, grain: 1 },
+      players: base.players.map((player) => player.id === "p1" ? {
+        ...player,
+        developmentCards: [{ id: "scarce-plenty", kind: "yearOfPlenty", purchasedTurn: 1, revealed: false }],
+      } : player),
+    };
+    expect(() => applyGameCommand(scarceBankState, {
+      id: "scarce-bank",
+      type: "playDevelopmentCard",
+      actorId: "p1",
+      cardId: "scarce-plenty",
+      resources: ["grain", "grain"],
+    })).toThrow("bank cannot provide");
+
+    const badRoadState: GameState = {
+      ...base,
+      players: base.players.map((player) => player.id === "p1" ? {
+        ...player,
+        developmentCards: [{ id: "bad-roads", kind: "roadBuilding", purchasedTurn: 1, revealed: false }],
+      } : player),
+    };
+    expect(() => applyGameCommand(badRoadState, {
+      id: "bad-free-road",
+      type: "playDevelopmentCard",
+      actorId: "p1",
+      cardId: "bad-roads",
+      edgeIds: ["missing-edge"],
+    })).toThrow("Invalid free road position");
   });
 });
