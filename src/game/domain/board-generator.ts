@@ -6,7 +6,7 @@ import {
   type BoardTile,
   type BoardVertex,
   type Terrain,
-} from "./types";
+} from "./types.js";
 
 const CLASSIC_TERRAINS: Terrain[] = [
   ...Array<Terrain>(4).fill("forest"),

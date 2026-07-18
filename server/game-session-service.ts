@@ -5,13 +5,13 @@ import {
   createGame,
   type GameCommand,
   type GameState,
-} from "../src/game/application/game-engine";
-import { emptyResources, type Player } from "../src/game/domain/types";
+} from "../src/game/application/game-engine.js";
+import { emptyResources, type Player } from "../src/game/domain/types.js";
 import {
   clientGameCommandSchema,
   type ChatMessage,
   type ClientGameCommand,
-} from "../src/multiplayer/protocol";
+} from "../src/multiplayer/protocol.js";
 import {
   gameRoomSchema,
   playerProfileSchema,
@@ -19,8 +19,8 @@ import {
   type CreateRoomInput,
   type GameRoom,
   type PlayerProfile,
-} from "../src/multiplayer/types";
-import type { OnlineStore, StoredRoomRecord } from "./online-store";
+} from "../src/multiplayer/types.js";
+import type { OnlineStore, StoredRoomRecord } from "./online-store.js";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const MAX_UPDATE_ATTEMPTS = 5;

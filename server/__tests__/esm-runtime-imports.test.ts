@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -33,7 +33,7 @@ describe("Vercel ESM runtime imports", () => {
       for (const match of source.matchAll(relativeImportPattern)) {
         const specifier = match[2]!;
         if (!specifier.endsWith(".js") && !specifier.endsWith(".json")) {
-          invalidImports.push(`${file.slice(projectRoot.length + 1)} -> ${specifier}`);
+          invalidImports.push(`${relative(projectRoot, file)} -> ${specifier}`);
         }
         const dependency = sourceModulePath(file, specifier);
         if (dependency) pending.push(dependency);

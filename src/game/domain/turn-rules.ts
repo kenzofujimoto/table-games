@@ -1,4 +1,4 @@
-import type { TurnPhase } from "./types";
+import type { TurnPhase } from "./types.js";
 
 export function cardsToDiscard(resourceCardCount: number): number {
   return resourceCardCount > 7 ? Math.floor(resourceCardCount / 2) : 0;

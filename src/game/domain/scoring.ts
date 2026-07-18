@@ -1,4 +1,4 @@
-import type { AchievementState, Board, Player } from "./types";
+import type { AchievementState, Board, Player } from "./types.js";
 
 export interface Score {
   visible: number;

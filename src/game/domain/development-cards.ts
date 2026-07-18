@@ -1,4 +1,4 @@
-import type { DevelopmentCard, DevelopmentCardKind, Player, Resource } from "./types";
+import type { DevelopmentCard, DevelopmentCardKind, Player, Resource } from "./types.js";
 
 export function canPlayDevelopmentCard(
   card: DevelopmentCard,

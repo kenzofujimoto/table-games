@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { playerProfileSchema, roomSettingsSchema } from "./types";
+import { playerProfileSchema, roomSettingsSchema } from "./types.js";
 
 const resourceSchema = z.enum(["wood", "brick", "wool", "grain", "ore"]);
 const resourceCountsSchema = z.object({

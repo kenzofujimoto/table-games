@@ -1,6 +1,6 @@
-import type { GameState } from "../src/game/application/game-engine";
-import type { ChatMessage, ServerRealtimeMessage } from "../src/multiplayer/protocol";
-import type { GameRoom } from "../src/multiplayer/types";
+import type { GameState } from "../src/game/application/game-engine.js";
+import type { ChatMessage, ServerRealtimeMessage } from "../src/multiplayer/protocol.js";
+import type { GameRoom } from "../src/multiplayer/types.js";
 
 export interface StoredRoomRecord {
   revision: number;

@@ -1,4 +1,4 @@
-import { RESOURCE_TYPES, type Board, type Player, type Resource, type ResourceCounts } from "./types";
+import { RESOURCE_TYPES, type Board, type Player, type Resource, type ResourceCounts } from "./types.js";
 
 export interface ProductionGrant {
   playerId: string;

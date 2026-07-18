@@ -1,4 +1,4 @@
-import type { Board, Player } from "./types";
+import type { Board, Player } from "./types.js";
 
 export function longestRoadLength(board: Board, playerId: string): number {
   const playerEdges = board.edges.filter((edge) => edge.roadPlayerId === playerId);

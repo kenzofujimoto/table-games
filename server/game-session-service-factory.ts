@@ -1,5 +1,5 @@
-import { GameSessionService } from "./game-session-service";
-import { getOnlineStore } from "./online-store-factory";
+import { GameSessionService } from "./game-session-service.js";
+import { getOnlineStore } from "./online-store-factory.js";
 
 let servicePromise: Promise<GameSessionService> | null = null;
 

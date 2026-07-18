@@ -1,7 +1,7 @@
 import { ZodError } from "zod";
 
-import { gameApiRequestSchema, roomApiRequestSchema } from "../src/multiplayer/protocol";
-import type { GameSessionService } from "./game-session-service";
+import { gameApiRequestSchema, roomApiRequestSchema } from "../src/multiplayer/protocol.js";
+import type { GameSessionService } from "./game-session-service.js";
 
 export interface ApiRequest {
   method: string;

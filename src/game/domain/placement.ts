@@ -1,4 +1,4 @@
-import type { Board, BoardEdge, BoardVertex } from "./types";
+import type { Board, BoardEdge, BoardVertex } from "./types.js";
 
 interface SettlementOptions {
   setup: boolean;

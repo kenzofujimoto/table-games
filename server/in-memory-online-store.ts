@@ -1,6 +1,6 @@
-import type { GameState } from "../src/game/application/game-engine";
-import type { ChatMessage, ServerRealtimeMessage } from "../src/multiplayer/protocol";
-import type { OnlineStore, StoredRoomRecord } from "./online-store";
+import type { GameState } from "../src/game/application/game-engine.js";
+import type { ChatMessage, ServerRealtimeMessage } from "../src/multiplayer/protocol.js";
+import type { OnlineStore, StoredRoomRecord } from "./online-store.js";
 
 function clone<T>(value: T): T {
   return structuredClone(value);

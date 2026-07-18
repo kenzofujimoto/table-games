@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-import type { GameCommand, GameState } from "@/game/application/game-engine";
+import type { GameCommand, GameState } from "../game/application/game-engine.js";
 
-import type { ChatMessage } from "./protocol";
+import type { ChatMessage } from "./protocol.js";
 
 export const playerColors = ["ember", "tide", "moss", "amethyst"] as const;
 

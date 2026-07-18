@@ -1,8 +1,8 @@
 import { createClient } from "redis";
 
-import type { GameState } from "../src/game/application/game-engine";
-import type { ChatMessage, ServerRealtimeMessage } from "../src/multiplayer/protocol";
-import type { OnlineStore, StoredRoomRecord } from "./online-store";
+import type { GameState } from "../src/game/application/game-engine.js";
+import type { ChatMessage, ServerRealtimeMessage } from "../src/multiplayer/protocol.js";
+import type { OnlineStore, StoredRoomRecord } from "./online-store.js";
 
 function createConfiguredClient(url: string) {
   return createClient({ url });

@@ -1,4 +1,4 @@
-import { RESOURCE_TYPES, type Board, type Resource, type ResourceCounts } from "./types";
+import { RESOURCE_TYPES, type Board, type Resource, type ResourceCounts } from "./types.js";
 
 export type PurchaseKind = "road" | "settlement" | "city" | "developmentCard";
 

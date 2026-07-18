@@ -1,8 +1,8 @@
-import { BlobSnapshotArchive } from "./blob-snapshot-archive";
-import { DurableOnlineStore } from "./durable-online-store";
-import { InMemoryOnlineStore } from "./in-memory-online-store";
-import type { OnlineStore } from "./online-store";
-import { connectRedisOnlineStore } from "./redis-online-store";
+import { BlobSnapshotArchive } from "./blob-snapshot-archive.js";
+import { DurableOnlineStore } from "./durable-online-store.js";
+import { InMemoryOnlineStore } from "./in-memory-online-store.js";
+import type { OnlineStore } from "./online-store.js";
+import { connectRedisOnlineStore } from "./redis-online-store.js";
 
 let storePromise: Promise<OnlineStore> | null = null;
 

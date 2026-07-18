@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-import { getGameSessionService } from "../server/game-session-service-factory";
-import { handleRoomApi } from "../server/http-api";
+import { getGameSessionService } from "../server/game-session-service-factory.js";
+import { handleRoomApi } from "../server/http-api.js";
 
 function queryValue(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;

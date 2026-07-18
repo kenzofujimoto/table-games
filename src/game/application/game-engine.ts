@@ -1,11 +1,11 @@
-import { determineLargestArmy, determineLongestRoadOwner } from "../domain/achievements";
-import { generateBoard } from "../domain/board-generator";
-import { applyMonopoly, canPlayDevelopmentCard, drawDevelopmentCard, createDevelopmentDeck } from "../domain/development-cards";
-import { BUILD_COSTS, canAfford, payCost, totalResources } from "../domain/economy";
-import { canBuildRoad, canBuildSettlement } from "../domain/placement";
-import { distributeProduction } from "../domain/production";
-import { hasWon } from "../domain/scoring";
-import { cardsToDiscard, rollDice } from "../domain/turn-rules";
+import { determineLargestArmy, determineLongestRoadOwner } from "../domain/achievements.js";
+import { generateBoard } from "../domain/board-generator.js";
+import { applyMonopoly, canPlayDevelopmentCard, drawDevelopmentCard, createDevelopmentDeck } from "../domain/development-cards.js";
+import { BUILD_COSTS, canAfford, payCost, totalResources } from "../domain/economy.js";
+import { canBuildRoad, canBuildSettlement } from "../domain/placement.js";
+import { distributeProduction } from "../domain/production.js";
+import { hasWon } from "../domain/scoring.js";
+import { cardsToDiscard, rollDice } from "../domain/turn-rules.js";
 import {
   RESOURCE_TYPES,
   emptyResources,
@@ -16,7 +16,7 @@ import {
   type Resource,
   type ResourceCounts,
   type TurnPhase,
-} from "../domain/types";
+} from "../domain/types.js";
 
 export interface GameConfig {
   targetScore: number;

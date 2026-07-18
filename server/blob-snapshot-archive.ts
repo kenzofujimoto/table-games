@@ -1,8 +1,8 @@
 import { get, list, put } from "@vercel/blob";
 
-import type { GameState } from "../src/game/application/game-engine";
-import type { SnapshotArchive } from "./durable-online-store";
-import type { StoredRoomRecord } from "./online-store";
+import type { GameState } from "../src/game/application/game-engine.js";
+import type { SnapshotArchive } from "./durable-online-store.js";
+import type { StoredRoomRecord } from "./online-store.js";
 
 const VERSION_WIDTH = 10;
 

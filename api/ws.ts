@@ -2,13 +2,13 @@ import { createServer } from "node:http";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
-import { getGameSessionService } from "../server/game-session-service-factory";
-import { errorResult } from "../server/http-api";
-import { getOnlineStore } from "../server/online-store-factory";
+import { getGameSessionService } from "../server/game-session-service-factory.js";
+import { errorResult } from "../server/http-api.js";
+import { getOnlineStore } from "../server/online-store-factory.js";
 import {
   clientRealtimeMessageSchema,
   type ServerRealtimeMessage,
-} from "../src/multiplayer/protocol";
+} from "../src/multiplayer/protocol.js";
 
 const server = createServer();
 const webSockets = new WebSocketServer({ server, maxPayload: 16 * 1024 });
