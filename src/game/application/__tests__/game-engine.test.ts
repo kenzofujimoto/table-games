@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { validRoadEdges, validSettlementVertices } from "../../domain/placement";
 import { emptyResources, type Player } from "../../domain/types";
-import { applyGameCommand, createGame } from "../game-engine";
+import { applyGameCommand, createGame, type GameState } from "../game-engine";
 
 const players: Player[] = ["p1", "p2", "p3"].map((id, index) => ({
   id,
@@ -149,5 +149,163 @@ describe("authoritative commands", () => {
     expect(ended.phase).toBe("roll");
     expect(ended.turnNumber).toBe(2);
     expect(ended.usedDevelopmentCardThisTurn).toBe(false);
+  });
+});
+
+describe("construction, purchases and defensive validation", () => {
+  it("requires three or four players", () => {
+    expect(() => createGame({ id: "short", roomCode: "SHORT", seed: "short", players: players.slice(0, 2), targetScore: 10 })).toThrow(
+      "A game requires three or four players",
+    );
+  });
+
+  it("builds paid pieces and buys from the shared development deck", () => {
+    const setup = completeSetup().state;
+    let state: GameState = {
+      ...setup,
+      phase: "actions" as const,
+      players: setup.players.map((player) => player.id === "p1"
+        ? { ...player, resources: { wood: 12, brick: 12, wool: 12, grain: 12, ore: 12 } }
+        : player),
+    };
+
+    const firstRoad = validRoadEdges(state.board, "p1")[0]!;
+    state = applyGameCommand(state, { id: "paid-road", type: "buildRoad", actorId: "p1", edgeId: firstRoad });
+    expect(state.board.edges.find((edge) => edge.id === firstRoad)?.roadPlayerId).toBe("p1");
+    expect(state.players[0]!.remainingPieces.roads).toBe(12);
+
+    const settlementVertex = validSettlementVertices(state.board, "p1", { setup: true })[0]!;
+    const connectingEdge = state.board.edges.find((edge) => edge.vertexIds.includes(settlementVertex) && edge.roadPlayerId === null)!;
+    state = {
+      ...state,
+      board: {
+        ...state.board,
+        edges: state.board.edges.map((edge) => edge.id === connectingEdge.id ? { ...edge, roadPlayerId: "p1" } : edge),
+      },
+    };
+    state = applyGameCommand(state, { id: "paid-settlement", type: "buildSettlement", actorId: "p1", vertexId: settlementVertex });
+    expect(state.board.vertices.find((vertex) => vertex.id === settlementVertex)?.building?.playerId).toBe("p1");
+
+    state = applyGameCommand(state, { id: "upgrade", type: "upgradeCity", actorId: "p1", vertexId: settlementVertex });
+    expect(state.board.vertices.find((vertex) => vertex.id === settlementVertex)?.building?.kind).toBe("city");
+
+    const deckSize = state.developmentDeck.length;
+    state = applyGameCommand(state, { id: "buy-card", type: "buyDevelopmentCard", actorId: "p1" }, { random: () => 0 });
+    expect(state.developmentDeck).toHaveLength(deckSize - 1);
+    expect(state.players[0]!.developmentCards).toHaveLength(1);
+    expect(state.events.at(-1)?.type).toBe("developmentCardBought");
+  });
+
+  it("collects mandatory discards before robber movement", () => {
+    const setup = completeSetup().state;
+    const funded = {
+      ...setup,
+      players: setup.players.map((player) => ({
+        ...player,
+        resources: player.id === "p2" ? { wood: 8, brick: 0, wool: 0, grain: 0, ore: 0 } : emptyResources(),
+      })),
+    };
+    const rolled = applyGameCommand(
+      funded,
+      { id: "discard-roll", type: "rollDice", actorId: "p1" },
+      { random: (() => {
+        const values = [0, 0.999];
+        return () => values.shift() ?? 0;
+      })() },
+    );
+    expect(rolled.phase).toBe("discard");
+    expect(rolled.pendingDiscards).toEqual({ p2: 4 });
+    expect(() => applyGameCommand(rolled, {
+      id: "bad-discard",
+      type: "discardResources",
+      actorId: "p2",
+      resources: { wood: 3, brick: 0, wool: 0, grain: 0, ore: 0 },
+    })).toThrow("Discard exactly 4 cards");
+
+    const discarded = applyGameCommand(rolled, {
+      id: "valid-discard",
+      type: "discardResources",
+      actorId: "p2",
+      resources: { wood: 4, brick: 0, wool: 0, grain: 0, ore: 0 },
+    });
+    expect(discarded.players[1]!.resources.wood).toBe(4);
+    expect(discarded.bank.wood).toBe(23);
+    expect(discarded.phase).toBe("robber");
+  });
+
+  it("steals a random hidden card from an eligible victim", () => {
+    const setup = completeSetup().state;
+    const funded = {
+      ...setup,
+      phase: "robber" as const,
+      players: setup.players.map((player) => player.id === "p2"
+        ? { ...player, resources: { ...emptyResources(), ore: 1 } }
+        : { ...player, resources: emptyResources() }),
+    };
+    const victimVertex = funded.board.vertices.find((vertex) => vertex.building?.playerId === "p2")!;
+    const currentTileId = funded.board.tiles.find((tile) => tile.hasRobber)!.id;
+    const targetTileId = victimVertex.tileIds.find((tileId) => tileId !== currentTileId)!;
+    const moved = applyGameCommand(funded, {
+      id: "steal-card",
+      type: "moveRobber",
+      actorId: "p1",
+      tileId: targetTileId,
+      victimId: "p2",
+    }, { random: () => 0 });
+    expect(moved.players[0]!.resources.ore).toBe(1);
+    expect(moved.players[1]!.resources.ore).toBe(0);
+    expect(moved.events.at(-1)?.type).toBe("resourceStolen");
+  });
+
+  it("uses owned ports for reduced bank trades", () => {
+    const setup = completeSetup().state;
+    const port = setup.board.ports[0]!;
+    const portEdge = setup.board.edges.find((edge) => edge.id === port.edgeId)!;
+    const give = port.kind === "generic" ? "wood" : port.kind;
+    const board = {
+      ...setup.board,
+      vertices: setup.board.vertices.map((vertex) => vertex.id === portEdge.vertexIds[0]
+        ? { ...vertex, building: { kind: "settlement" as const, playerId: "p1" } }
+        : vertex),
+    };
+    const funded = {
+      ...setup,
+      board,
+      phase: "actions" as const,
+      players: setup.players.map((player) => player.id === "p1"
+        ? { ...player, resources: { ...emptyResources(), [give]: port.ratio } }
+        : player),
+    };
+    const traded = applyGameCommand(funded, {
+      id: "port-trade",
+      type: "bankTrade",
+      actorId: "p1",
+      give,
+      receive: give === "ore" ? "wood" : "ore",
+      ratio: port.ratio,
+    });
+    expect(traded.players[0]!.resources[give]).toBe(0);
+  });
+
+  it("rejects commands in invalid phases and invalid targets", () => {
+    const setup = completeSetup().state;
+    expect(() => applyGameCommand(setup, { id: "early-end", type: "endTurn", actorId: "p1" })).toThrow("The turn cannot end now");
+    expect(() => applyGameCommand(setup, { id: "early-road", type: "buildRoad", actorId: "p1", edgeId: "missing" })).toThrow(
+      "A road cannot be built now",
+    );
+    const robberState = { ...setup, phase: "robber" as const };
+    const currentTileId = robberState.board.tiles.find((tile) => tile.hasRobber)!.id;
+    expect(() => applyGameCommand(robberState, {
+      id: "same-robber-tile",
+      type: "moveRobber",
+      actorId: "p1",
+      tileId: currentTileId,
+      victimId: null,
+    })).toThrow("Move the robber to another tile");
+    expect(() => applyGameCommand({ ...setup, phase: "finished" as const }, {
+      id: "finished-action",
+      type: "rollDice",
+      actorId: "p1",
+    })).toThrow("The game has already finished");
   });
 });
