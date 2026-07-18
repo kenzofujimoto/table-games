@@ -209,30 +209,31 @@ export class GameSessionService {
     const normalized = normalizeCode(code);
     const authenticated = await this.authenticate(normalized, token);
     const gameId = this.randomId();
-
-    const record = await this.updateRoom(normalized, (current) => {
-      if (current.room.hostId !== authenticated.playerId) throw new Error("Only the host can start the game");
-      if (current.room.status !== "lobby") throw new Error("The game has already started");
-      if (current.room.players.length !== current.room.settings.maxPlayers) throw new Error("The room needs every seat filled");
-      if (!current.room.players.every((player) => player.ready)) throw new Error("Every player must be ready");
-      return {
-        ...current,
-        revision: current.revision + 1,
-        room: { ...current.room, status: "playing", gameId },
-      };
-    });
+    const current = authenticated.record;
+    if (current.room.hostId !== authenticated.playerId) throw new Error("Only the host can start the game");
+    if (current.room.status !== "lobby") throw new Error("The game has already started");
+    if (current.room.players.length !== current.room.settings.maxPlayers) throw new Error("The room needs every seat filled");
+    if (!current.room.players.every((player) => player.ready)) throw new Error("Every player must be ready");
 
     const state = createGame({
       id: gameId,
       roomCode: normalized,
       seed: `${normalized}-${this.randomId()}`,
-      players: record.room.players.map((player) => playerFromProfile(player.profile)),
-      targetScore: record.room.settings.targetScore,
-      turnSeconds: record.room.settings.turnSeconds,
+      players: current.room.players.map((player) => playerFromProfile(player.profile)),
+      targetScore: current.room.settings.targetScore,
+      turnSeconds: current.room.settings.turnSeconds,
     });
-    state.config.confirmEndTurn = record.room.settings.confirmEndTurn;
-    state.config.chatEnabled = record.room.settings.chatEnabled;
+    state.config.confirmEndTurn = current.room.settings.confirmEndTurn;
+    state.config.chatEnabled = current.room.settings.chatEnabled;
     if (!await this.store.createGame(state)) throw new Error("Game state already exists");
+    const record: StoredRoomRecord = {
+      ...current,
+      revision: current.revision + 1,
+      room: { ...current.room, status: "playing", gameId },
+    };
+    if (!await this.store.compareAndSetRoom(normalized, current.revision, record)) {
+      throw new Error("Room update conflict: try again");
+    }
     await this.store.publish(normalized, { type: "roomUpdated", roomCode: normalized });
     await this.store.publish(normalized, { type: "gameUpdated", roomCode: normalized, gameId, version: state.version });
     return record.room;
