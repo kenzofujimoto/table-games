@@ -8,6 +8,9 @@ export type Terrain = "forest" | "hills" | "pasture" | "fields" | "mountains" | 
 
 export type BuildingKind = "settlement" | "city";
 
+export type ConnectionStatus = "online" | "reconnecting" | "offline" | "autopilot";
+export type PlayerControl = "human" | "autopilot";
+
 export type DevelopmentCardKind =
   | "knight"
   | "roadBuilding"
@@ -28,6 +31,9 @@ export interface Player {
   color: string;
   avatar: string;
   connected: boolean;
+  connectionStatus?: ConnectionStatus;
+  control?: PlayerControl;
+  lastSeenAt?: string | null;
   ready: boolean;
   resources: ResourceCounts;
   remainingPieces: {

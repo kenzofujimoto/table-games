@@ -1,4 +1,10 @@
-import { applyGameCommand, type GameCommand, type GameState } from "@/game/application/game-engine";
+import { applyExpiredPhase, applyGameCommand, type GameCommand, type GameState } from "@/game/application/game-engine";
+import {
+  AUREN_GAME_ID,
+  getGameManifest,
+  validatePlayerCount,
+  validateRoomCapacity,
+} from "@/games/game-registry";
 
 import {
   gameRoomSchema,
@@ -103,11 +109,15 @@ export class LocalGameRepository implements GameRepository {
     const settings = roomSettingsSchema.parse(input.settings);
     const name = input.name.trim();
     if (name.length < 2 || name.length > 48) throw new Error("Room name must have between 2 and 48 characters");
+    const gameKey = input.gameKey ?? AUREN_GAME_ID;
+    const manifest = getGameManifest(gameKey);
+    if (!validateRoomCapacity(manifest, settings.maxPlayers)) throw new Error("Invalid room capacity for this game");
     const rooms = this.rooms();
     const code = this.generateCode(rooms);
     const now = new Date().toISOString();
     const room: GameRoom = {
       id: crypto.randomUUID(),
+      gameKey,
       code,
       name,
       hostId: profile.id,
@@ -135,7 +145,7 @@ export class LocalGameRepository implements GameRepository {
     if (!room) throw new Error("Room was not found");
     if (room.status !== "lobby") throw new Error("The game has already started");
     if (room.players.some((player) => player.profile.id === profile.id)) throw new Error("Player is already in the room");
-    if (room.players.length >= room.settings.maxPlayers) throw new Error("Room is full");
+    if (room.settings.maxPlayers !== null && room.players.length >= room.settings.maxPlayers) throw new Error("Room is full");
     if (room.players.some((player) => player.profile.color === profile.color)) throw new Error("Color is already in use");
 
     const next: GameRoom = {
@@ -170,13 +180,57 @@ export class LocalGameRepository implements GameRepository {
     return next;
   }
 
+  async leaveRoom(code: string, playerId: string): Promise<GameRoom> {
+    const normalized = normalizeCode(code);
+    const rooms = this.rooms();
+    const room = rooms[normalized];
+    if (!room) throw new Error("Room was not found");
+    if (!room.players.some((player) => player.profile.id === playerId)) throw new Error("Player is not in the room");
+    let next: GameRoom;
+    if (room.status === "lobby") {
+      const players = room.players.filter((player) => player.profile.id !== playerId);
+      next = {
+        ...room,
+        hostId: room.hostId === playerId ? players[0]?.profile.id ?? room.hostId : room.hostId,
+        players: players.map((player, seat) => ({ ...player, seat })),
+      };
+    } else {
+      next = {
+        ...room,
+        players: room.players.map((player) => player.profile.id === playerId
+          ? { ...player, connected: false, connectionStatus: "autopilot", control: "autopilot" }
+          : player),
+      };
+      if (room.gameId) {
+        const games = safeParseRecord(this.storage.getItem(GAMES_KEY));
+        const game = games[room.gameId] as GameState | undefined;
+        if (game) {
+          games[room.gameId] = {
+            ...game,
+            version: game.version + 1,
+            players: game.players.map((player) => player.id === playerId
+              ? { ...player, connected: false, connectionStatus: "autopilot", control: "autopilot" }
+              : player),
+          };
+          this.storage.setItem(GAMES_KEY, JSON.stringify(games));
+        }
+      }
+    }
+    rooms[normalized] = next;
+    this.persistRooms(rooms);
+    this.emit({ kind: "room", roomCode: normalized });
+    return next;
+  }
+
   async startGame(code: string, actorId: string): Promise<GameRoom> {
     const normalized = normalizeCode(code);
     const rooms = this.rooms();
     const room = rooms[normalized];
     if (!room) throw new Error("Room was not found");
     if (room.hostId !== actorId) throw new Error("Only the host can start the game");
-    if (room.players.length < 3 || room.players.length !== room.settings.maxPlayers) throw new Error("The room needs every seat filled");
+    const manifest = getGameManifest(room.gameKey);
+    if (room.settings.maxPlayers !== null && room.players.length !== room.settings.maxPlayers) throw new Error("The room needs every seat filled");
+    if (!validatePlayerCount(manifest, room.players.length)) throw new Error("The room does not have a valid player count");
     if (!room.players.every((player) => player.ready)) throw new Error("Every player must be ready");
     const next: GameRoom = { ...room, status: "playing", gameId: crypto.randomUUID() };
     rooms[normalized] = next;
@@ -200,6 +254,12 @@ export class LocalGameRepository implements GameRepository {
   async executeCommand(state: GameState, command: GameCommand): Promise<GameState> {
     const next = applyGameCommand(state, command);
     await this.saveGame(next);
+    return next;
+  }
+
+  async advanceExpiredGame(state: GameState): Promise<GameState> {
+    const next = applyExpiredPhase(state, new Date());
+    if (next !== state) await this.saveGame(next);
     return next;
   }
 

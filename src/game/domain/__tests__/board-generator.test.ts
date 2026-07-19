@@ -39,6 +39,34 @@ describe("seeded board generation", () => {
     expect(board.tiles.every((tile) => tile.vertexIds.length === 6)).toBe(true);
   });
 
+  it("creates four generic ports and one two-for-one port for every resource", () => {
+    const board = generateBoard({ seed: "complete-ports", shape: "classic" });
+    const kinds = board.ports.map((port) => port.kind);
+
+    expect(board.ports).toHaveLength(9);
+    expect(kinds.filter((kind) => kind === "generic")).toHaveLength(4);
+    expect(kinds.filter((kind) => kind === "wood")).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === "brick")).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === "wool")).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === "grain")).toHaveLength(1);
+    expect(kinds.filter((kind) => kind === "ore")).toHaveLength(1);
+    expect(board.ports.every((port) => port.ratio === (port.kind === "generic" ? 3 : 2))).toBe(true);
+  });
+
+  it("places ports on unique separated coastal edges", () => {
+    const board = generateBoard({ seed: "coastal-ports", shape: "classic" });
+    const portEdges = board.ports.map((port) => board.edges.find((edge) => edge.id === port.edgeId)!);
+
+    expect(new Set(portEdges.map((edge) => edge.id)).size).toBe(portEdges.length);
+    expect(portEdges.every((edge) => edge.vertexIds.every((vertexId) => {
+      const vertex = board.vertices.find((candidate) => candidate.id === vertexId)!;
+      return vertex.tileIds.length < 3;
+    }))).toBe(true);
+    expect(portEdges.every((edge, index) => portEdges.every((other, otherIndex) => (
+      index === otherIndex || !edge.vertexIds.some((vertexId) => other.vertexIds.includes(vertexId))
+    )))).toBe(true);
+  });
+
   it("rejects an empty seed and reports malformed boards", () => {
     expect(() => generateBoard({ seed: "  ", shape: "classic" })).toThrow("A board seed is required");
     const board = generateBoard({ seed: "invalid-copy", shape: "classic" });

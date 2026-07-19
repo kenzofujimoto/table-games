@@ -5,7 +5,7 @@ import { AppShell } from "@/shared/components/AppShell";
 
 const features = [
   { icon: Map, title: "Mundos únicos", text: "Mapas equilibrados e reproduzíveis por seed." },
-  { icon: Users, title: "3–4 exploradores", text: "Salas privadas, presença e retorno à partida." },
+  { icon: Users, title: "2–4 exploradores", text: "Salas privadas, presença e retorno à partida." },
   { icon: Dices, title: "Estratégia clássica", text: "Produção, comércio, rotas e cartas de horizonte." },
 ];
 
@@ -24,7 +24,7 @@ export function LandingPage() {
               <Link className="button button--primary" to="/perfil?next=/criar">Criar partida <ArrowRight /></Link>
               <Link className="button button--ghost" to="/perfil?next=/entrar"><Link2 /> Entrar em partida</Link>
             </div>
-            <div className="trust-line"><ShieldCheck /> Modo local disponível · Supabase pronto para conectar</div>
+            <div className="trust-line"><ShieldCheck /> Online pela Vercel gratuita · sem cadastro obrigatório</div>
           </div>
           <div className="hero-board" aria-label="Prévia artística de uma ilha hexagonal">
             <div className="hero-board__glow" />

@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 import type { GameCommand, GameState } from "../game/application/game-engine.js";
+import type { ConnectionStatus, PlayerControl } from "../game/domain/types.js";
+import { AUREN_GAME_ID } from "../games/game-registry.js";
 
 import type { ChatMessage } from "./protocol.js";
 
@@ -18,7 +20,7 @@ export type PlayerProfile = z.infer<typeof playerProfileSchema>;
 
 export const roomSettingsSchema = z.object({
   visibility: z.enum(["public", "private"]),
-  maxPlayers: z.union([z.literal(3), z.literal(4)]),
+  maxPlayers: z.number().int().min(2).nullable(),
   targetScore: z.number().int().min(5).max(20),
   turnSeconds: z.number().int().min(30).max(600),
   mapShape: z.enum(["classic", "archipelago", "wide"]),
@@ -37,14 +39,26 @@ export const roomPlayerSchema = z.object({
   profile: playerProfileSchema,
   ready: z.boolean(),
   connected: z.boolean(),
+  connectionStatus: z.enum(["online", "reconnecting", "offline", "autopilot"]).optional(),
+  control: z.enum(["human", "autopilot"]).optional(),
+  lastSeenAt: z.string().nullable().optional(),
   seat: z.number().int().nonnegative(),
   joinedAt: z.string(),
 });
 
 export type RoomPlayer = z.infer<typeof roomPlayerSchema>;
 
+export interface PlayerPresence {
+  playerId: string;
+  status: ConnectionStatus;
+  lastSeenAt: string | null;
+}
+
+export type { ConnectionStatus, PlayerControl };
+
 export const gameRoomSchema = z.object({
   id: z.string().min(1),
+  gameKey: z.string().min(1).max(64).default(AUREN_GAME_ID),
   code: z.string().length(6),
   name: z.string().min(2).max(48),
   hostId: z.string().min(1),
@@ -73,6 +87,7 @@ export interface CreateRoomInput {
   name: string;
   host: PlayerProfile;
   settings: RoomSettings;
+  gameKey?: string;
 }
 
 export interface GameRepository {
@@ -81,10 +96,12 @@ export interface GameRepository {
   getRoom(code: string): Promise<GameRoom | null>;
   joinRoom(code: string, profile: PlayerProfile): Promise<GameRoom>;
   setReady(code: string, playerId: string, ready: boolean): Promise<GameRoom>;
+  leaveRoom(code: string, playerId: string): Promise<GameRoom>;
   startGame(code: string, actorId: string): Promise<GameRoom>;
   saveGame(state: GameState): Promise<void>;
   loadGame(gameId: string): Promise<GameState | null>;
   executeCommand(state: GameState, command: GameCommand): Promise<GameState>;
+  advanceExpiredGame(state: GameState): Promise<GameState>;
   sendChat(roomCode: string, author: PlayerProfile, message: string): Promise<void>;
   subscribe(roomCode: string, listener: (event: RepositoryEvent) => void): () => void;
 }

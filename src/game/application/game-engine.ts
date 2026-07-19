@@ -2,7 +2,7 @@ import { determineLargestArmy, determineLongestRoadOwner } from "../domain/achie
 import { generateBoard } from "../domain/board-generator.js";
 import { applyMonopoly, canPlayDevelopmentCard, drawDevelopmentCard, createDevelopmentDeck } from "../domain/development-cards.js";
 import { BUILD_COSTS, canAfford, payCost, totalResources } from "../domain/economy.js";
-import { canBuildRoad, canBuildSettlement } from "../domain/placement.js";
+import { canBuildRoad, canBuildSettlement, validRoadEdges, validSettlementVertices } from "../domain/placement.js";
 import { distributeProduction } from "../domain/production.js";
 import { hasWon } from "../domain/scoring.js";
 import { cardsToDiscard, rollDice } from "../domain/turn-rules.js";
@@ -21,6 +21,7 @@ import {
 export interface GameConfig {
   targetScore: number;
   turnSeconds: number;
+  diceRollSeconds: number;
   confirmEndTurn: boolean;
   chatEnabled: boolean;
 }
@@ -78,6 +79,11 @@ export interface GameState {
   bank: ResourceCounts;
   developmentDeck: DevelopmentCardKind[];
   phase: TurnPhase;
+  phaseStartedAt: string;
+  phaseDeadlineAt: string | null;
+  disconnectGraceUsedMs: Record<string, number>;
+  disconnectGraceKeys: string[];
+  lastAllOfflineAt?: string | null;
   activePlayerIndex: number;
   turnNumber: number;
   setupStep: number;
@@ -126,6 +132,7 @@ export type GameCommand =
 
 interface EngineDependencies {
   random?: () => number;
+  now?: () => Date;
 }
 
 interface CreateGameInput {
@@ -135,6 +142,7 @@ interface CreateGameInput {
   players: Player[];
   targetScore: number;
   turnSeconds?: number;
+  startedAt?: string;
 }
 
 function clonePlayers(players: Player[]): Player[] {
@@ -168,6 +176,31 @@ function activePlayer(state: GameState): Player {
   const player = state.players[state.activePlayerIndex];
   if (!player) throw new Error("Active player was not found");
   return player;
+}
+
+function phaseDurationMilliseconds(state: Pick<GameState, "config">, phase: TurnPhase): number | null {
+  if (phase === "finished") return null;
+  const seconds = phase === "roll" ? state.config.diceRollSeconds : state.config.turnSeconds;
+  return seconds * 1_000;
+}
+
+function withPhaseTiming(state: GameState, now: Date): GameState {
+  const duration = phaseDurationMilliseconds(state, state.phase);
+  return {
+    ...state,
+    phaseStartedAt: now.toISOString(),
+    phaseDeadlineAt: duration === null ? null : new Date(now.getTime() + duration).toISOString(),
+  };
+}
+
+function refreshPhaseTiming(previous: GameState, next: GameState, now: Date): GameState {
+  if (
+    previous.phase !== next.phase
+    || previous.activePlayerIndex !== next.activePlayerIndex
+  ) {
+    return withPhaseTiming(next, now);
+  }
+  return next;
 }
 
 function assertActivePlayer(state: GameState, actorId: string): void {
@@ -229,12 +262,15 @@ function evaluateVictory(state: GameState, actorId: string): void {
 }
 
 export function createGame(input: CreateGameInput): GameState {
-  if (input.players.length < 3 || input.players.length > 4) {
-    throw new Error("A game requires three or four players");
+  if (input.players.length < 2 || input.players.length > 4) {
+    throw new Error("A game requires two to four players");
   }
 
   const preparedPlayers = clonePlayers(input.players).map((player) => ({
     ...player,
+    connectionStatus: player.connectionStatus ?? "online",
+    control: player.control ?? "human",
+    lastSeenAt: player.lastSeenAt ?? null,
     resources: emptyResources(),
     remainingPieces: { roads: 15, settlements: 5, cities: 4 },
     developmentCards: [],
@@ -242,7 +278,9 @@ export function createGame(input: CreateGameInput): GameState {
     revealedVictoryPoints: 0,
   }));
 
-  return {
+  const startedAt = input.startedAt ? new Date(input.startedAt) : new Date();
+  if (Number.isNaN(startedAt.getTime())) throw new Error("A valid game start time is required");
+  const state: GameState = {
     id: input.id,
     roomCode: input.roomCode,
     seed: input.seed,
@@ -250,6 +288,7 @@ export function createGame(input: CreateGameInput): GameState {
     config: {
       targetScore: input.targetScore,
       turnSeconds: input.turnSeconds ?? 120,
+      diceRollSeconds: 5,
       confirmEndTurn: true,
       chatEnabled: true,
     },
@@ -258,6 +297,11 @@ export function createGame(input: CreateGameInput): GameState {
     bank: { wood: 19, brick: 19, wool: 19, grain: 19, ore: 19 },
     developmentDeck: createDevelopmentDeck(),
     phase: "setupSettlement",
+    phaseStartedAt: startedAt.toISOString(),
+    phaseDeadlineAt: null,
+    disconnectGraceUsedMs: {},
+    disconnectGraceKeys: [],
+    lastAllOfflineAt: null,
     activePlayerIndex: 0,
     turnNumber: 1,
     setupStep: 0,
@@ -271,6 +315,7 @@ export function createGame(input: CreateGameInput): GameState {
     winnerId: null,
     trades: [],
   };
+  return withPhaseTiming(state, startedAt);
 }
 
 function placeSettlement(state: GameState, command: Extract<GameCommand, { type: "placeSettlement" }>): GameState {
@@ -645,21 +690,97 @@ export function applyGameCommand(
   if (state.appliedCommandIds.includes(command.id)) return state;
   if (state.phase === "finished") throw new Error("The game has already finished");
   const random = dependencies.random ?? Math.random;
+  const now = dependencies.now?.() ?? new Date();
 
+  let next: GameState;
   switch (command.type) {
-    case "placeSettlement": return placeSettlement(state, command);
-    case "placeRoad": return placeRoad(state, command);
-    case "rollDice": return handleRoll(state, command, random);
-    case "discardResources": return discardResources(state, command);
-    case "moveRobber": return moveRobber(state, command, random);
-    case "buildRoad": return buildRoad(state, command);
-    case "buildSettlement": return buildSettlement(state, command);
-    case "upgradeCity": return upgradeCity(state, command);
-    case "bankTrade": return bankTrade(state, command);
-    case "buyDevelopmentCard": return buyDevelopmentCard(state, command, random);
-    case "playDevelopmentCard": return playDevelopmentCard(state, command);
-    case "proposeTrade": return proposeTrade(state, command);
-    case "respondTrade": return respondTrade(state, command);
-    case "endTurn": return endTurn(state, command);
+    case "placeSettlement": next = placeSettlement(state, command); break;
+    case "placeRoad": next = placeRoad(state, command); break;
+    case "rollDice": next = handleRoll(state, command, random); break;
+    case "discardResources": next = discardResources(state, command); break;
+    case "moveRobber": next = moveRobber(state, command, random); break;
+    case "buildRoad": next = buildRoad(state, command); break;
+    case "buildSettlement": next = buildSettlement(state, command); break;
+    case "upgradeCity": next = upgradeCity(state, command); break;
+    case "bankTrade": next = bankTrade(state, command); break;
+    case "buyDevelopmentCard": next = buyDevelopmentCard(state, command, random); break;
+    case "playDevelopmentCard": next = playDevelopmentCard(state, command); break;
+    case "proposeTrade": next = proposeTrade(state, command); break;
+    case "respondTrade": next = respondTrade(state, command); break;
+    case "endTurn": next = endTurn(state, command); break;
   }
+  return refreshPhaseTiming(state, next, now);
+}
+
+function automaticSettlement(state: GameState, actorId: string): string | null {
+  const candidates = validSettlementVertices(state.board, actorId, { setup: true });
+  const probability = (vertexId: string) => {
+    const vertex = state.board.vertices.find((candidate) => candidate.id === vertexId);
+    return vertex?.tileIds.reduce((score, tileId) => {
+      const number = state.board.tiles.find((tile) => tile.id === tileId)?.number;
+      return score + (number === null || number === undefined ? 0 : 6 - Math.abs(7 - number));
+    }, 0) ?? 0;
+  };
+  return candidates.sort((first, second) => probability(second) - probability(first) || first.localeCompare(second))[0] ?? null;
+}
+
+function automaticDiscard(state: GameState, playerId: string, required: number): ResourceCounts {
+  const player = state.players.find((candidate) => candidate.id === playerId)!;
+  let remaining = required;
+  return RESOURCE_TYPES.reduce<ResourceCounts>((resources, resource) => {
+    const amount = Math.min(player.resources[resource], remaining);
+    resources[resource] = amount;
+    remaining -= amount;
+    return resources;
+  }, emptyResources());
+}
+
+export function applyExpiredPhase(
+  state: GameState,
+  now: Date,
+  dependencies: Pick<EngineDependencies, "random"> = {},
+): GameState {
+  const deadline = state.phaseDeadlineAt ? Date.parse(state.phaseDeadlineAt) : Number.POSITIVE_INFINITY;
+  if (state.phase === "finished" || now.getTime() < deadline) return state;
+  const actorId = activePlayer(state).id;
+  const id = `timeout:${state.phase}:${state.phaseDeadlineAt ?? "legacy"}:${state.setupStep}`;
+  let command: GameCommand | null = null;
+
+  if (state.phase === "setupSettlement") {
+    const vertexId = automaticSettlement(state, actorId);
+    if (vertexId) command = { id, type: "placeSettlement", actorId, vertexId };
+  } else if (state.phase === "setupRoad") {
+    const edgeId = validRoadEdges(state.board, actorId, state.pendingSetupVertexId ?? undefined).sort()[0];
+    if (edgeId) command = { id, type: "placeRoad", actorId, edgeId };
+  } else if (state.phase === "roll") {
+    command = { id, type: "rollDice", actorId };
+  } else if (state.phase === "actions") {
+    command = { id, type: "endTurn", actorId };
+  } else if (state.phase === "discard") {
+    const pending = Object.entries(state.pendingDiscards).sort(([first], [second]) => first.localeCompare(second))[0];
+    if (pending) command = {
+      id,
+      type: "discardResources",
+      actorId: pending[0],
+      resources: automaticDiscard(state, pending[0], pending[1]),
+    };
+  } else {
+    const target = state.board.tiles.find((tile) => !tile.hasRobber);
+    if (target) {
+      const victimId = target.vertexIds.flatMap((vertexId) => {
+        const building = state.board.vertices.find((vertex) => vertex.id === vertexId)?.building;
+        if (!building || building.playerId === actorId) return [];
+        const player = state.players.find((candidate) => candidate.id === building.playerId);
+        return player && totalResources(player.resources) > 0 ? [player.id] : [];
+      })[0] ?? null;
+      command = { id, type: "moveRobber", actorId, tileId: target.id, victimId };
+    }
+  }
+
+  return command
+    ? applyGameCommand(state, command, {
+        ...(dependencies.random ? { random: dependencies.random } : {}),
+        now: () => now,
+      })
+    : state;
 }

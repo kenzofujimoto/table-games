@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { randomUUID } from "node:crypto";
 
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
@@ -32,12 +33,18 @@ function parsePayload(data: RawData): unknown {
 
 webSockets.on("connection", (socket) => {
   let unsubscribe: (() => Promise<void>) | null = null;
+  const connectionId = randomUUID();
+  let presenceContext: { roomCode: string; playerId: string } | null = null;
 
   socket.on("message", (data) => {
     void (async () => {
       try {
         const message = clientRealtimeMessageSchema.parse(parsePayload(data));
         if (message.type === "ping") {
+          if (presenceContext) {
+            const service = await getGameSessionService();
+            await service.heartbeatPresence(presenceContext.roomCode, presenceContext.playerId, connectionId);
+          }
           send(socket, { type: "pong", sentAt: message.sentAt });
           return;
         }
@@ -48,11 +55,13 @@ webSockets.on("connection", (socket) => {
           if (unsubscribe) await unsubscribe();
           const store = await getOnlineStore();
           unsubscribe = await store.subscribe(message.roomCode, (event) => send(socket, event));
+          presenceContext = { roomCode: record.room.code, playerId };
+          const players = await service.connectPresence(record.room.code, message.sessionToken, connectionId);
           send(socket, { type: "connected", roomCode: message.roomCode, playerId });
           send(socket, {
             type: "presence",
             roomCode: message.roomCode,
-            playerIds: record.room.players.filter((player) => player.connected).map((player) => player.profile.id),
+            players,
           });
           const chatHistory = await store.getChat(record.room.code, 50);
           for (const chatMessage of chatHistory) send(socket, { type: "chat", payload: chatMessage });

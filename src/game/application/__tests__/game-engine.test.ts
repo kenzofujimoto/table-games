@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { validRoadEdges, validSettlementVertices } from "../../domain/placement";
 import { emptyResources, type Player } from "../../domain/types";
-import { applyGameCommand, createGame, type GameState } from "../game-engine";
+import { applyExpiredPhase, applyGameCommand, createGame, type GameState } from "../game-engine";
 
 const players: Player[] = ["p1", "p2", "p3"].map((id, index) => ({
   id,
@@ -48,6 +48,19 @@ function completeSetup() {
 }
 
 describe("initial placement", () => {
+  it("supports a complete two-player setup", () => {
+    const state = createGame({
+      id: "game-two-players",
+      roomCode: "DUO234",
+      seed: "two-player-seed",
+      players: players.slice(0, 2),
+      targetScore: 10,
+    });
+
+    expect(state.players).toHaveLength(2);
+    expect(state.phase).toBe("setupSettlement");
+  });
+
   it("uses normal then reverse player order", () => {
     const { state, order } = completeSetup();
     expect(order).toEqual(["p1", "p2", "p3", "p3", "p2", "p1"]);
@@ -59,6 +72,75 @@ describe("initial placement", () => {
   it("grants resources adjacent to each player's second settlement", () => {
     const { state } = completeSetup();
     expect(state.players.every((player) => Object.values(player.resources).reduce((sum, amount) => sum + amount, 0) > 0)).toBe(true);
+  });
+});
+
+describe("authoritative phase deadlines", () => {
+  it("starts setup with the configured turn duration", () => {
+    const state = createGame({
+      id: "timed-setup",
+      roomCode: "TIME23",
+      seed: "timed-seed",
+      players: players.slice(0, 2),
+      targetScore: 10,
+      turnSeconds: 30,
+      startedAt: "2026-07-18T12:00:00.000Z",
+    });
+
+    expect(state.phaseStartedAt).toBe("2026-07-18T12:00:00.000Z");
+    expect(state.phaseDeadlineAt).toBe("2026-07-18T12:00:30.000Z");
+    expect(state.config.diceRollSeconds).toBe(5);
+  });
+
+  it("does nothing before a deadline and auto-places after it expires", () => {
+    const state = createGame({
+      id: "timed-placement",
+      roomCode: "TIME24",
+      seed: "timed-placement",
+      players: players.slice(0, 2),
+      targetScore: 10,
+      turnSeconds: 30,
+      startedAt: "2026-07-18T12:00:00.000Z",
+    });
+
+    expect(applyExpiredPhase(state, new Date("2026-07-18T12:00:29.999Z"))).toBe(state);
+    const placed = applyExpiredPhase(state, new Date("2026-07-18T12:00:30.000Z"));
+    expect(placed.phase).toBe("setupRoad");
+    expect(placed.board.vertices.some((vertex) => vertex.building?.playerId === "p1")).toBe(true);
+    expect(placed.phaseDeadlineAt).toBe("2026-07-18T12:01:00.000Z");
+  });
+
+  it("uses five seconds for dice and ends an expired action phase", () => {
+    let state = createGame({
+      id: "timed-turn",
+      roomCode: "TIME25",
+      seed: "timed-turn",
+      players: players.slice(0, 2),
+      targetScore: 10,
+      turnSeconds: 30,
+      startedAt: "2026-07-18T12:00:00.000Z",
+    });
+    let now = new Date("2026-07-18T12:00:30.000Z");
+    while (state.phase === "setupSettlement" || state.phase === "setupRoad") {
+      state = applyExpiredPhase(state, now);
+      now = new Date(now.getTime() + 30_000);
+    }
+
+    expect(state.phase).toBe("roll");
+    expect(Date.parse(state.phaseDeadlineAt!)).toBe(Date.parse(state.phaseStartedAt) + 5_000);
+    const rolled = applyExpiredPhase(state, new Date(state.phaseDeadlineAt!), {
+      random: (() => {
+        const values = [0.5, 0.5];
+        return () => values.shift() ?? 0;
+      })(),
+    });
+    expect(rolled.phase).toBe("actions");
+    expect(Date.parse(rolled.phaseDeadlineAt!)).toBe(Date.parse(rolled.phaseStartedAt) + 30_000);
+
+    const ended = applyExpiredPhase(rolled, new Date(rolled.phaseDeadlineAt!));
+    expect(ended.phase).toBe("roll");
+    expect(ended.activePlayerIndex).toBe(1);
+    expect(Date.parse(ended.phaseDeadlineAt!)).toBe(Date.parse(ended.phaseStartedAt) + 5_000);
   });
 });
 
@@ -153,9 +235,9 @@ describe("authoritative commands", () => {
 });
 
 describe("construction, purchases and defensive validation", () => {
-  it("requires three or four players", () => {
-    expect(() => createGame({ id: "short", roomCode: "SHORT", seed: "short", players: players.slice(0, 2), targetScore: 10 })).toThrow(
-      "A game requires three or four players",
+  it("requires two through four players", () => {
+    expect(() => createGame({ id: "short", roomCode: "SHORT", seed: "short", players: players.slice(0, 1), targetScore: 10 })).toThrow(
+      "A game requires two to four players",
     );
   });
 

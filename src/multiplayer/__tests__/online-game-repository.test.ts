@@ -43,6 +43,7 @@ const profile: PlayerProfile = {
 
 const room: GameRoom = {
   id: "room-1",
+  gameKey: "auren",
   code: "ABC234",
   name: "Mesa",
   hostId: "p1",

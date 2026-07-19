@@ -75,14 +75,22 @@ export const roomApiRequestSchema = z.discriminatedUnion("action", [
   }).strict(),
   z.object({ action: z.literal("join"), roomCode: roomCodeSchema, profile: playerProfileSchema }).strict(),
   z.object({ action: z.literal("ready"), roomCode: roomCodeSchema, ready: z.boolean() }).strict(),
+  z.object({ action: z.literal("leave"), roomCode: roomCodeSchema }).strict(),
   z.object({ action: z.literal("start"), roomCode: roomCodeSchema }).strict(),
 ]);
 
-export const gameApiRequestSchema = z.object({
-  gameId: z.string().min(1).max(100),
-  expectedVersion: z.number().int().nonnegative(),
-  command: clientGameCommandSchema,
-}).strict();
+export const gameApiRequestSchema = z.union([
+  z.object({
+    gameId: z.string().min(1).max(100),
+    expectedVersion: z.number().int().nonnegative(),
+    command: clientGameCommandSchema,
+  }).strict(),
+  z.object({
+    action: z.literal("tick"),
+    gameId: z.string().min(1).max(100),
+    expectedVersion: z.number().int().nonnegative(),
+  }).strict(),
+]);
 
 export const clientRealtimeMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("subscribe"), roomCode: roomCodeSchema, sessionToken: sessionTokenSchema }).strict(),
@@ -129,7 +137,11 @@ export const serverRealtimeMessageSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("presence"),
     roomCode: roomCodeSchema,
-    playerIds: z.array(z.string().min(1)).max(4),
+    players: z.array(z.object({
+      playerId: z.string().min(1),
+      status: z.enum(["online", "reconnecting", "offline", "autopilot"]),
+      lastSeenAt: z.string().nullable(),
+    }).strict()),
   }).strict(),
   z.object({ type: z.literal("chat"), payload: chatMessageSchema }).strict(),
   z.object({ type: z.literal("error"), code: z.string().min(1), message: z.string().min(1) }).strict(),
@@ -140,7 +152,15 @@ export type ServerRealtimeMessage =
   | { type: "connected"; roomCode: string; playerId: string }
   | { type: "roomUpdated"; roomCode: string }
   | { type: "gameUpdated"; roomCode: string; gameId: string; version: number }
-  | { type: "presence"; roomCode: string; playerIds: string[] }
+  | {
+      type: "presence";
+      roomCode: string;
+      players: Array<{
+        playerId: string;
+        status: "online" | "reconnecting" | "offline" | "autopilot";
+        lastSeenAt: string | null;
+      }>;
+    }
   | { type: "chat"; payload: ChatMessage }
   | { type: "error"; code: string; message: string }
   | { type: "pong"; sentAt: number };

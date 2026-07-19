@@ -2,7 +2,7 @@ import { createClient } from "redis";
 
 import type { GameState } from "../src/game/application/game-engine.js";
 import type { ChatMessage, ServerRealtimeMessage } from "../src/multiplayer/protocol.js";
-import type { OnlineStore, StoredRoomRecord } from "./online-store.js";
+import type { OnlineStore, PresenceLease, StoredRoomRecord } from "./online-store.js";
 
 function createConfiguredClient(url: string) {
   return createClient({ url });
@@ -54,6 +54,10 @@ function channelKey(channel: string): string {
   return `auren:events:${channel.toUpperCase()}`;
 }
 
+function presenceKey(roomCode: string): string {
+  return `auren:presence:${roomCode.toUpperCase()}`;
+}
+
 export class RedisOnlineStore implements OnlineStore {
   constructor(
     private readonly client: RedisClient,
@@ -100,6 +104,29 @@ export class RedisOnlineStore implements OnlineStore {
       arguments: [String(expectedVersion), JSON.stringify(state), String(this.ttlSeconds)],
     });
     return Number(result) === 1;
+  }
+
+  async touchPresence(lease: PresenceLease): Promise<void> {
+    const key = presenceKey(lease.roomCode);
+    await this.client.multi()
+      .hSet(key, lease.connectionId, JSON.stringify({ ...lease, roomCode: lease.roomCode.toUpperCase() }))
+      .expire(key, this.ttlSeconds)
+      .exec();
+  }
+
+  async getPresence(roomCode: string): Promise<PresenceLease[]> {
+    const values = await this.client.hGetAll(presenceKey(roomCode));
+    return Object.values(values).map((value) => parseJson(value, `presence ${roomCode}`) as PresenceLease);
+  }
+
+  async removePlayerPresence(roomCode: string, playerId: string): Promise<void> {
+    const key = presenceKey(roomCode);
+    const values = await this.client.hGetAll(key);
+    const connectionIds = Object.entries(values).flatMap(([connectionId, value]) => {
+      const lease = parseJson(value, `presence ${roomCode}`) as PresenceLease;
+      return lease.playerId === playerId ? [connectionId] : [];
+    });
+    if (connectionIds.length > 0) await this.client.hDel(key, connectionIds);
   }
 
   async appendChat(message: ChatMessage): Promise<void> {
