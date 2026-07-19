@@ -70,6 +70,7 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
       <svg
         className="hex-board"
         viewBox="-390 -310 780 620"
+        preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label="Tabuleiro hexagonal interativo"
         onWheel={(event) => { event.preventDefault(); zoom(event.deltaY < 0 ? 0.08 : -0.08); }}
@@ -100,7 +101,7 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
             <image href={`/textures/${terrain}.webp`} x="0" y="0" width="132" height="132" preserveAspectRatio="xMidYMid slice" />
           </pattern>)}
         </defs>
-        <rect x="-500" y="-400" width="1000" height="800" rx="36" fill="url(#ocean)" />
+        <rect className="board-ocean-backdrop" x="-2048" y="-2048" width="4096" height="4096" fill="url(#ocean)" />
         <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`}>
           {state.board.ports.map((port) => {
             const edge = state.board.edges.find((candidate) => candidate.id === port.edgeId);
