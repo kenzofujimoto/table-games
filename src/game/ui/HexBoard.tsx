@@ -2,6 +2,9 @@ import { LocateFixed, Minus, Plus } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import type { GameState } from "@/game/application/game-engine";
+import type { BoardPort } from "@/game/domain/types";
+
+import { clampCamera, clientDeltaToViewBox } from "./board-camera";
 
 interface HexBoardProps {
   state: GameState;
@@ -36,12 +39,25 @@ const terrainLabel = {
   desert: "Deserto",
 };
 
+const portLabel = {
+  generic: "geral",
+  wood: "madeira",
+  brick: "tijolo",
+  wool: "lã",
+  grain: "trigo",
+  ore: "minério",
+};
+
+function portAriaLabel(port: BoardPort): string {
+  return `Porto ${port.kind === "generic" ? "geral" : `de ${portLabel[port.kind]}`} ${port.ratio} por 1`;
+}
+
 export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles, onVertex, onEdge, onTile }: HexBoardProps) {
   const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
   const drag = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
   const playerColors = useMemo(() => Object.fromEntries(state.players.map((player) => [player.id, player.color])), [state.players]);
 
-  const zoom = (delta: number) => setCamera((current) => ({ ...current, zoom: Math.max(0.65, Math.min(1.75, current.zoom + delta)) }));
+  const zoom = (delta: number) => setCamera((current) => clampCamera({ ...current, zoom: current.zoom + delta }));
   const reset = () => setCamera({ x: 0, y: 0, zoom: 1 });
 
   return (
@@ -64,9 +80,18 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
         }}
         onPointerMove={(event) => {
           if (!drag.current) return;
-          setCamera((current) => ({ ...current, x: drag.current!.originX + event.clientX - drag.current!.x, y: drag.current!.originY + event.clientY - drag.current!.y }));
+          const delta = clientDeltaToViewBox(
+            { x: event.clientX - drag.current.x, y: event.clientY - drag.current.y },
+            event.currentTarget.getBoundingClientRect(),
+          );
+          setCamera((current) => clampCamera({
+            ...current,
+            x: drag.current!.originX + delta.x,
+            y: drag.current!.originY + delta.y,
+          }));
         }}
         onPointerUp={() => { drag.current = null; }}
+        onPointerCancel={() => { drag.current = null; }}
       >
         <defs>
           <filter id="tile-shadow"><feDropShadow dx="0" dy="5" stdDeviation="5" floodOpacity=".38" /></filter>
@@ -74,6 +99,25 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
         </defs>
         <rect x="-500" y="-400" width="1000" height="800" rx="36" fill="url(#ocean)" />
         <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`}>
+          {state.board.ports.map((port) => {
+            const edge = state.board.edges.find((candidate) => candidate.id === port.edgeId);
+            const first = state.board.vertices.find((vertex) => vertex.id === edge?.vertexIds[0]);
+            const second = state.board.vertices.find((vertex) => vertex.id === edge?.vertexIds[1]);
+            if (first?.x === undefined || first.y === undefined || second?.x === undefined || second.y === undefined) return null;
+            const x1 = first.x * SCALE; const y1 = first.y * SCALE;
+            const x2 = second.x * SCALE; const y2 = second.y * SCALE;
+            const midpointX = (x1 + x2) / 2; const midpointY = (y1 + y2) / 2;
+            const distance = Math.hypot(midpointX, midpointY) || 1;
+            const x = midpointX + (midpointX / distance) * 22;
+            const y = midpointY + (midpointY / distance) * 22;
+            return <g key={port.id} className={`board-port board-port--${port.kind}`} aria-label={portAriaLabel(port)}>
+              <line className="port-pier" x1={x1} y1={y1} x2={x} y2={y} />
+              <line className="port-pier" x1={x2} y1={y2} x2={x} y2={y} />
+              <circle className="port-badge" cx={x} cy={y} r="19" />
+              <text className="port-ratio" x={x} y={y + 4}>{port.ratio}:1</text>
+            </g>;
+          })}
+
           {state.board.tiles.map((tile) => {
             const point = center(tile.q, tile.r);
             const probability = tile.number === null ? 0 : 6 - Math.abs(7 - tile.number);
