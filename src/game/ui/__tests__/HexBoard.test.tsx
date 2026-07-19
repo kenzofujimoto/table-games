@@ -33,6 +33,10 @@ describe("HexBoard", () => {
     expect(screen.getByLabelText("Porto de lã 2 por 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Porto de trigo 2 por 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Porto de minério 2 por 1")).toBeInTheDocument();
+    for (const resource of ["wood", "brick", "wool", "grain", "ore"]) {
+      expect(document.querySelector(`.port-resource-icon--${resource}`)).toBeInTheDocument();
+    }
+    expect(document.querySelectorAll(".port-resource-icon--generic")).toHaveLength(4);
   });
 
   it("uses original image textures for every terrain", () => {
