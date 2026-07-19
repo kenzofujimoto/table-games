@@ -83,4 +83,21 @@ describe("server-authoritative game timer", () => {
     expect(grace.phaseDeadlineAt).toBe("2026-07-18T12:02:00.000Z");
     expect(grace.disconnectGraceUsedMs.p1).toBe(60_000);
   });
+
+  it("freezes the deadline while every player is offline", async () => {
+    const { service, settings, advance } = setup(60);
+    const { host, guest, room } = await start(service, settings);
+    await service.connectPresence(room.code, host.sessionToken, "host-device");
+    await service.connectPresence(room.code, guest.sessionToken, "guest-device");
+    const initial = await service.getGameView(room.gameId!, host.sessionToken);
+
+    advance(300_000);
+    await service.connectPresence(room.code, host.sessionToken, "host-returned");
+    const resumed = await service.getGameView(room.gameId!, host.sessionToken);
+
+    expect(initial.phaseDeadlineAt).toBe("2026-07-18T12:01:00.000Z");
+    expect(resumed.phase).toBe("setupSettlement");
+    expect(resumed.phaseDeadlineAt).toBe("2026-07-18T12:05:15.000Z");
+    expect(resumed.version).toBe(initial.version + 1);
+  });
 });
