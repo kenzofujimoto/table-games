@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import type { GameState } from "../../src/game/application/game-engine";
 import { emptyResources } from "../../src/game/domain/types";
 import type { PlayerProfile, RoomSettings } from "../../src/multiplayer/types";
 import { GameSessionService } from "../game-session-service";
@@ -49,6 +50,13 @@ async function startThreePlayerGame(service: GameSessionService) {
   return { room, host, second, third };
 }
 
+function totalResourceSupply(state: GameState): number {
+  const playerCards = state.players.reduce((total, player) => (
+    total + Object.values(player.resources).reduce((subtotal, amount) => subtotal + amount, 0)
+  ), 0);
+  return playerCards + Object.values(state.bank).reduce((total, amount) => total + amount, 0);
+}
+
 describe("authoritative online game sessions", () => {
   it("creates private sessions without exposing token hashes in room data", async () => {
     const { service } = createService();
@@ -94,6 +102,52 @@ describe("authoritative online game sessions", () => {
       { id: "command-2", type: "placeSettlement", vertexId: vertex.id },
       initial.version,
     )).rejects.toThrow("Version conflict");
+  });
+
+  it("executes player trades authoritatively without creating resource cards", async () => {
+    const { service, store } = createService();
+    const { room, host, second } = await startThreePlayerGame(service);
+    const stored = await store.getGame(room.gameId!);
+    expect(stored).not.toBeNull();
+    const funded: GameState = {
+      ...stored!,
+      version: stored!.version + 1,
+      phase: "actions",
+      activePlayerIndex: 0,
+      players: stored!.players.map((player) => ({
+        ...player,
+        resources: player.id === "p1"
+          ? { ...emptyResources(), wood: 2 }
+          : player.id === "p2" ? { ...emptyResources(), ore: 1 } : emptyResources(),
+      })),
+    };
+    expect(await store.compareAndSetGame(funded.id, stored!.version, funded)).toBe(true);
+    const supplyBefore = totalResourceSupply(funded);
+
+    const proposed = await service.executeCommand(
+      funded.id,
+      host.sessionToken,
+      {
+        id: "server-trade",
+        type: "proposeTrade",
+        offer: { ...emptyResources(), wood: 2 },
+        request: { ...emptyResources(), ore: 1 },
+        targetPlayerIds: ["p2", "p3"],
+      },
+      funded.version,
+    );
+    await service.executeCommand(
+      funded.id,
+      second.sessionToken,
+      { id: "server-accept", type: "respondTrade", tradeId: "server-trade", response: "accept" },
+      proposed.version,
+    );
+
+    const finalState = await store.getGame(funded.id);
+    expect(finalState).not.toBeNull();
+    expect(totalResourceSupply(finalState!)).toBe(supplyBefore);
+    expect(finalState!.players[0]!.resources).toMatchObject({ wood: 0, ore: 1 });
+    expect(finalState!.players[1]!.resources).toMatchObject({ wood: 2, ore: 0 });
   });
 
   it("never reveals opponents' resources or hidden development cards", async () => {
