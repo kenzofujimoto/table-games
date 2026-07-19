@@ -69,6 +69,7 @@ const sessionTokenSchema = z.string().min(32).max(256);
 export const roomApiRequestSchema = z.discriminatedUnion("action", [
   z.object({
     action: z.literal("create"),
+    gameKey: z.string().trim().min(1).max(64).optional(),
     name: z.string().trim().min(2).max(48),
     host: playerProfileSchema,
     settings: roomSettingsSchema,

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { clientRealtimeMessageSchema, gameApiRequestSchema, serverRealtimeMessageSchema } from "../protocol";
+import {
+  clientRealtimeMessageSchema,
+  gameApiRequestSchema,
+  roomApiRequestSchema,
+  serverRealtimeMessageSchema,
+} from "../protocol";
 
 describe("online multiplayer protocol", () => {
   it("accepts authenticated subscriptions, commands, chat and heartbeats", () => {
@@ -79,5 +84,28 @@ describe("online multiplayer protocol", () => {
       gameId: "game-1",
       expectedVersion: 4,
     })).toEqual({ action: "tick", gameId: "game-1", expectedVersion: 4 });
+  });
+
+  it("accepts the selected game when creating a two-player room", () => {
+    expect(roomApiRequestSchema.parse({
+      action: "create",
+      gameKey: "auren",
+      name: "Duelo online",
+      host: { id: "p1", name: "Lia", color: "ember", avatar: "compass", crest: "sun" },
+      settings: {
+        visibility: "private",
+        maxPlayers: 2,
+        targetScore: 10,
+        turnSeconds: 120,
+        mapShape: "classic",
+        terrainDistribution: "random",
+        numberDistribution: "random",
+        ports: "random",
+        previewMap: true,
+        allowSpectators: false,
+        chatEnabled: true,
+        confirmEndTurn: true,
+      },
+    })).toMatchObject({ action: "create", gameKey: "auren", settings: { maxPlayers: 2 } });
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { PlayerProfile, RoomSettings } from "../../src/multiplayer/types";
 import { GameSessionService } from "../game-session-service";
@@ -51,6 +51,31 @@ describe("HTTP multiplayer API", () => {
     expect(room.status).toBe(200);
     expect(JSON.stringify(room.body)).not.toContain("token-");
     expect(JSON.stringify(room.body)).not.toContain("sessionHashes");
+  });
+
+  it("forwards the selected game when creating a two-player room", async () => {
+    const service = setup();
+    const createRoom = vi.spyOn(service, "createRoom");
+    const twoPlayerSettings = { ...settings, maxPlayers: 2 };
+
+    const created = await handleRoomApi({
+      method: "POST",
+      body: {
+        action: "create",
+        gameKey: "auren",
+        name: "Duelo online",
+        host: profiles[0],
+        settings: twoPlayerSettings,
+      },
+    }, service);
+
+    expect(created.status).toBe(201);
+    expect(createRoom).toHaveBeenCalledWith({
+      gameKey: "auren",
+      name: "Duelo online",
+      host: profiles[0],
+      settings: twoPlayerSettings,
+    });
   });
 
   it("requires bearer authentication and validates strict payloads", async () => {

@@ -79,7 +79,12 @@ export async function handleRoomApi(request: ApiRequest, service: GameSessionSer
 
     const payload = roomApiRequestSchema.parse(request.body);
     if (payload.action === "create") {
-      const session = await service.createRoom({ name: payload.name, host: payload.host, settings: payload.settings });
+      const session = await service.createRoom({
+        name: payload.name,
+        host: payload.host,
+        settings: payload.settings,
+        ...(payload.gameKey ? { gameKey: payload.gameKey } : {}),
+      });
       return { status: 201, body: session };
     }
     if (payload.action === "join") {
