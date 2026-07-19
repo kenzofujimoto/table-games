@@ -14,4 +14,13 @@ describe("board camera", () => {
       { width: 390, height: 310 },
     )).toEqual({ x: 200, y: 100 });
   });
+
+  it("recovers from invalid browser geometry instead of losing the board", () => {
+    expect(clampCamera({ x: Number.POSITIVE_INFINITY, y: Number.NaN, zoom: Number.NaN }))
+      .toEqual({ x: 0, y: 0, zoom: 1 });
+    expect(clientDeltaToViewBox(
+      { x: Number.NaN, y: 20 },
+      { width: 390, height: 310 },
+    )).toEqual({ x: 0, y: 0 });
+  });
 });

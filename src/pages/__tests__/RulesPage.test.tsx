@@ -13,6 +13,9 @@ describe("RulesPage", () => {
     expect(screen.getByRole("heading", { name: "Trocas e portos" })).toBeInTheDocument();
     expect(screen.getByText(/quatro portos gerais permitem 3:1/i)).toBeInTheDocument();
     expect(screen.getByText(/um porto 2:1 para cada material/i)).toBeInTheDocument();
+    expect(screen.getByText(/enviada a todos os outros exploradores/i)).toBeInTheDocument();
+    expect(screen.getByText(/proponente pode cancelar/i)).toBeInTheDocument();
+    expect(screen.getByText(/turno só pode terminar/i)).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Cartas de desenvolvimento" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Quedas e reconexão" })).toBeInTheDocument();
     expect(screen.getByText(/piloto automático preserva o assento/i)).toBeInTheDocument();

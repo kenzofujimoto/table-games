@@ -12,7 +12,7 @@ import { DevelopmentModal, DiscardModal, TradeModal } from "@/game/ui/GameModals
 import { HexBoard } from "@/game/ui/HexBoard";
 import { ResourceToken } from "@/game/ui/ResourceToken";
 import { formatCountdown, remainingMilliseconds } from "@/game/ui/countdown";
-import { canOpenTrade, canPlayerInteract, resourceCardTotal } from "@/game/ui/player-view";
+import { canOpenTrade, canPlayerInteract, pendingTradeForViewer, resourceCardTotal } from "@/game/ui/player-view";
 import { GameLogo } from "@/shared/components/GameLogo";
 
 type BuildMode = "road" | "settlement" | "city" | null;
@@ -85,6 +85,7 @@ export function GamePage() {
   }, [buildMode, game, profile?.id]);
 
   const remaining = remainingMilliseconds(game?.phaseDeadlineAt, new Date(clockNow));
+  const pendingTradeId = game && profile ? pendingTradeForViewer(game, profile.id)?.id ?? null : null;
 
   useEffect(() => {
     if (!game || game.phase === "finished" || remaining > 0 || timerTicking.current) return;
@@ -107,6 +108,8 @@ export function GamePage() {
   if (!viewer) return <Navigate to="/" replace />;
   const canAct = canPlayerInteract(game, viewer.id) && actor.id === viewer.id;
   const tradeAvailable = canOpenTrade(game, viewer.id);
+  const hasOpenTrade = game.trades.some((trade) => trade.status === "open");
+  const canEndTurn = game.phase === "actions" && canAct && !hasOpenTrade;
 
   const send = async (command: GameCommand) => {
     const confirmBuild = shouldConfirmGameCommand(command.type, settings);
@@ -144,7 +147,7 @@ export function GamePage() {
 
       <aside className="players-rail"><div className="rail-title"><Users /> Exploradores</div>{game.players.map((player, index) => {
         const score = calculateScore(player, game.board, game.achievements);
-        return <article className={`game-player-card ${index === game.activePlayerIndex ? "is-active" : ""}`} key={player.id}><span className={`avatar-token avatar-token--${player.color}`}>{player.name[0]}</span><div><strong>{player.name}</strong><small><span className={`presence ${player.connected ? "is-online" : ""}`} /> {{ online: "Online", reconnecting: "Reconectando", offline: "Offline", autopilot: "Piloto automático" }[player.connectionStatus ?? (player.connected ? "online" : "reconnecting")]}</small><span className="card-count">▰ {resourceCardTotal(player)} cartas</span></div><div className="score-gem">{score.visible}</div>{game.achievements.longestRoadPlayerId === player.id && <Route className="award-icon" />}{game.achievements.largestArmyPlayerId === player.id && <Crown className="award-icon" />}</article>;
+        return <article className={`game-player-card game-player-card--${player.color} ${index === game.activePlayerIndex ? "is-active" : ""}`} key={player.id}><span className={`avatar-token avatar-token--${player.color}`}>{player.name[0]}</span><div><strong>{player.name}</strong><small><span className={`presence ${player.connected ? "is-online" : ""}`} /> {{ online: "Online", reconnecting: "Reconectando", offline: "Offline", autopilot: "Piloto automático" }[player.connectionStatus ?? (player.connected ? "online" : "reconnecting")]}</small><span className="card-count">▰ {resourceCardTotal(player)} cartas</span></div><div className="score-gem">{score.visible}</div>{game.achievements.longestRoadPlayerId === player.id && <Route className="award-icon" />}{game.achievements.largestArmyPlayerId === player.id && <Crown className="award-icon" />}</article>;
       })}<div className="seed-card"><MapPin /><span>Seed do mapa<strong>{game.seed}</strong></span></div></aside>
 
       <section className="board-stage"><div className="board-instruction"><Sparkles /><span><small>ETAPA ATUAL</small><strong>{phaseLabels[game.phase]}</strong></span></div><HexBoard state={game} {...interaction} onVertex={clickVertex} onEdge={clickEdge} onTile={clickTile} /></section>
@@ -156,10 +159,10 @@ export function GamePage() {
         <section className="event-log"><div className="rail-title"><Flag /> Histórico</div><div>{[...game.events.slice(-7)].reverse().map((item) => <p key={item.id}><span />{item.message}</p>)}</div></section>
       </aside>
 
-      <footer className="resource-dock"><div className="resource-owner"><span className={`avatar-token avatar-token--${viewer.color}`}>{viewer.name[0]}</span><div><small>SEUS RECURSOS</small><strong>{viewer.name}</strong></div></div><div className="resource-list">{RESOURCE_TYPES.map((resource) => <ResourceToken resource={resource} amount={viewer.resources[resource]} key={resource} />)}</div><button className="button button--danger desktop-end-turn" type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id })}>Encerrar turno <ChevronRight /></button><nav className="mobile-action-bar"><button type="button" disabled={game.phase !== "roll" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "rollDice", actorId: viewer.id })}><Dices /> Dados</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setBuildMode("road")}><Route /> Estrada</button><button type="button" disabled={!tradeAvailable} onClick={() => setModal("trade")}><ArrowRightLeft /> Trocar</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id })}><Flag /> Encerrar</button></nav></footer>
+      <footer className="resource-dock"><div className="resource-owner"><span className={`avatar-token avatar-token--${viewer.color}`}>{viewer.name[0]}</span><div><small>SEUS RECURSOS</small><strong>{viewer.name}</strong></div></div><div className="resource-list">{RESOURCE_TYPES.map((resource) => <ResourceToken resource={resource} amount={viewer.resources[resource]} key={resource} />)}</div><button className="button button--danger desktop-end-turn" type="button" disabled={!canEndTurn} title={hasOpenTrade ? "Cancele ou aguarde a resolução da troca aberta" : undefined} onClick={() => void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id })}>Encerrar turno <ChevronRight /></button><nav className="mobile-action-bar"><button type="button" disabled={game.phase !== "roll" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "rollDice", actorId: viewer.id })}><Dices /> Dados</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setBuildMode("road")}><Route /> Estrada</button><button type="button" disabled={!tradeAvailable} onClick={() => setModal("trade")}><ArrowRightLeft /> Trocar</button><button type="button" disabled={!canEndTurn} onClick={() => void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id })}><Flag /> Encerrar</button></nav></footer>
 
       {game.phase === "discard" && <DiscardModal state={game} viewerId={viewer.id} dispatch={dispatch} />}
-      {modal === "trade" && <TradeModal state={game} viewerId={viewer.id} dispatch={dispatch} onClose={() => setModal(null)} />}
+      {(modal === "trade" || pendingTradeId) && <TradeModal state={game} viewerId={viewer.id} dispatch={dispatch} onClose={() => setModal(null)} />}
       {modal === "development" && <DevelopmentModal state={game} viewerId={viewer.id} dispatch={dispatch} onClose={() => setModal(null)} />}
       {error && <button className="floating-error" type="button" onClick={() => setError(null)}><ShieldAlert /> {error}<X /></button>}
       {game.winnerId && <div className="victory-overlay"><div className="victory-rays" /><section><Trophy /><div className="eyebrow">EXPEDIÇÃO CONCLUÍDA</div><h1>{game.players.find((player) => player.id === game.winnerId)?.name} venceu!</h1><p>Uma rota digna de entrar para os mapas de Auren.</p><div className="victory-score">{game.players.map((player) => <div key={player.id}><span className={`avatar-token avatar-token--${player.color}`}>{player.name[0]}</span><strong>{player.name}</strong><b>{calculateScore(player, game.board, game.achievements).total} pts</b></div>)}</div><div className="hero__actions"><Link className="button button--primary" to="/perfil?next=/criar">Nova partida</Link><Link className="button button--ghost" to="/">Voltar ao menu</Link></div></section></div>}

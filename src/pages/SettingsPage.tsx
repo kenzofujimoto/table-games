@@ -17,7 +17,7 @@ export function SettingsPage() {
   ] as const;
   return (
     <AppShell><main className="content-page content-page--narrow"><header className="page-heading"><div className="eyebrow">PREFERÊNCIAS</div><h1>Ajustes da jornada</h1><p>Personalize som, contraste e ritmo visual.</p></header><section className="setup-card">
-      <div className="toggle-list">{rows.map(([key, Icon, title, description]) => <button className="toggle-row" type="button" onClick={() => setSettings({ [key]: !settings[key] })} key={key}><Icon /><span><strong>{title}</strong><small>{description}</small></span><span className={`switch ${settings[key] ? "is-on" : ""}`} /></button>)}</div>
+      <div className="toggle-list">{rows.map(([key, Icon, title, description]) => <button className="toggle-row" type="button" aria-pressed={settings[key]} onClick={() => setSettings({ [key]: !settings[key] })} key={key}><Icon /><span><strong>{title}</strong><small>{description}</small></span><span className={`switch ${settings[key] ? "is-on" : ""}`} /></button>)}</div>
       <Field label="Tamanho da interface"><SelectInput value={settings.interfaceScale} onChange={(event) => setSettings({ interfaceScale: event.target.value as typeof settings.interfaceScale })}><option value="compact">Compacta</option><option value="comfortable">Confortável</option><option value="large">Grande</option></SelectInput></Field>
       <label className="volume-control"><span><Volume2 /> Volume <strong>{settings.volume}%</strong></span><input type="range" min={0} max={100} value={settings.volume} onChange={(event) => setSettings({ volume: Number(event.target.value) })} /></label>
     </section></main></AppShell>

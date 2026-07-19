@@ -6,6 +6,25 @@ interface AudioPreferences {
   volume: number;
 }
 
+export interface MusicPlayer {
+  src: string;
+  volume: number;
+  currentTime: number;
+  preload: string;
+  onended: ((event: Event) => void) | null;
+  onerror: ((event: Event) => void) | null;
+  play: () => Promise<void>;
+  pause: () => void;
+  load: () => void;
+}
+
+export const MUSIC_PLAYLIST = [
+  { title: "A Brand New Wisdom", author: "hernandack", src: "/audio/music/a-brand-new-wisdom.ogg" },
+  { title: "Winter Dust", author: "hernandack", src: "/audio/music/winter-dust.ogg" },
+  { title: "Swinging Sweet", author: "hernandack", src: "/audio/music/swinging-sweet.ogg" },
+  { title: "Just Saying Tho", author: "hernandack", src: "/audio/music/just-saying-tho.ogg" },
+] as const;
+
 const CUE_NOTES: Record<AudioCue, { frequency: number; duration: number; wave: OscillatorType }> = {
   dice: { frequency: 145, duration: 0.16, wave: "square" },
   build: { frequency: 330, duration: 0.22, wave: "triangle" },
@@ -19,30 +38,37 @@ interface AudioWindow {
   webkitAudioContext?: typeof AudioContext;
 }
 
-class GameAudioManager {
+type MusicPlayerFactory = () => MusicPlayer;
+
+export class GameAudioManager {
   private context: AudioContext | null = null;
-  private musicGain: GainNode | null = null;
-  private musicOscillators: OscillatorNode[] = [];
+  private musicPlayer: MusicPlayer | null = null;
+  private musicPlaying = false;
+  private unlocked = false;
+  private trackIndex = 0;
   private preferences: AudioPreferences = { music: false, effects: true, volume: 70 };
+
+  constructor(private readonly createMusicPlayer: MusicPlayerFactory = () => new Audio()) {}
 
   sync(preferences: AudioPreferences): void {
     this.preferences = preferences;
-    if (!this.context) return;
+    this.applyMusicVolume();
     if (preferences.music) this.startMusic();
     else this.stopMusic();
-    if (this.musicGain) this.musicGain.gain.setTargetAtTime(this.musicLevel(), this.context.currentTime, 0.08);
   }
 
   async unlock(): Promise<boolean> {
     if (typeof window === "undefined") return false;
+    this.unlocked = true;
     const audioWindow = window as unknown as AudioWindow;
     const AudioContextConstructor = audioWindow.AudioContext ?? audioWindow.webkitAudioContext;
-    if (!AudioContextConstructor) return false;
     try {
-      this.context ??= new AudioContextConstructor();
-      if (this.context.state === "suspended") await this.context.resume();
+      if (AudioContextConstructor) {
+        this.context ??= new AudioContextConstructor();
+        if (this.context.state === "suspended") await this.context.resume();
+      }
       if (this.preferences.music) this.startMusic();
-      return this.context.state === "running";
+      return true;
     } catch (error) {
       console.warn("Audio could not be started", error);
       return false;
@@ -70,31 +96,49 @@ class GameAudioManager {
   }
 
   private musicLevel(): number {
-    return Math.max(0.0001, this.preferences.volume / 6_000);
+    return Math.max(0, Math.min(1, this.preferences.volume / 100)) * 0.35;
+  }
+
+  private applyMusicVolume(): void {
+    if (this.musicPlayer) this.musicPlayer.volume = this.musicLevel();
+  }
+
+  private ensureMusicPlayer(): MusicPlayer {
+    if (this.musicPlayer) return this.musicPlayer;
+    const player = this.createMusicPlayer();
+    player.src = MUSIC_PLAYLIST[this.trackIndex]!.src;
+    player.preload = "auto";
+    player.volume = this.musicLevel();
+    player.onended = () => this.advanceTrack();
+    player.onerror = () => this.advanceTrack();
+    this.musicPlayer = player;
+    return player;
   }
 
   private startMusic(): void {
-    if (!this.context || this.musicOscillators.length > 0) return;
-    const gain = this.context.createGain();
-    gain.gain.setValueAtTime(this.musicLevel(), this.context.currentTime);
-    gain.connect(this.context.destination);
-    this.musicGain = gain;
-    this.musicOscillators = [110, 164.81, 220].map((frequency, index) => {
-      const oscillator = this.context!.createOscillator();
-      oscillator.type = index === 1 ? "triangle" : "sine";
-      oscillator.frequency.setValueAtTime(frequency, this.context!.currentTime);
-      oscillator.detune.setValueAtTime(index * 3 - 3, this.context!.currentTime);
-      oscillator.connect(gain);
-      oscillator.start();
-      return oscillator;
+    if (!this.unlocked || !this.preferences.music || this.musicPlaying) return;
+    const player = this.ensureMusicPlayer();
+    this.musicPlaying = true;
+    void player.play().catch((error: unknown) => {
+      this.musicPlaying = false;
+      console.warn("Background music could not be played", error);
     });
   }
 
   private stopMusic(): void {
-    for (const oscillator of this.musicOscillators) oscillator.stop();
-    this.musicOscillators = [];
-    this.musicGain?.disconnect();
-    this.musicGain = null;
+    if (!this.musicPlayer || !this.musicPlaying) return;
+    this.musicPlayer.pause();
+    this.musicPlaying = false;
+  }
+
+  private advanceTrack(): void {
+    if (!this.musicPlayer) return;
+    this.trackIndex = (this.trackIndex + 1) % MUSIC_PLAYLIST.length;
+    this.musicPlayer.src = MUSIC_PLAYLIST[this.trackIndex]!.src;
+    this.musicPlayer.currentTime = 0;
+    this.musicPlayer.load();
+    this.musicPlaying = false;
+    this.startMusic();
   }
 }
 

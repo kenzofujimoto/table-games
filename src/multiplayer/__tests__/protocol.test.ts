@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  clientGameCommandSchema,
   clientRealtimeMessageSchema,
   gameApiRequestSchema,
   roomApiRequestSchema,
@@ -34,6 +35,14 @@ describe("online multiplayer protocol", () => {
     expect(command).toMatchObject({ type: "command", expectedVersion: 4 });
     expect(chat).toMatchObject({ type: "chat", message: "Vamos abrir novas rotas?" });
     expect(heartbeat).toEqual({ type: "ping", sentAt: 1234 });
+  });
+
+  it("accepts proposer cancellation for an open player trade", () => {
+    expect(clientGameCommandSchema.parse({
+      id: "cancel-trade-1",
+      type: "cancelTrade",
+      tradeId: "trade-1",
+    })).toEqual({ id: "cancel-trade-1", type: "cancelTrade", tradeId: "trade-1" });
   });
 
   it("rejects actor spoofing and malformed payloads", () => {

@@ -58,6 +58,11 @@ export const clientGameCommandSchema = z.discriminatedUnion("type", [
     tradeId: z.string().min(1).max(100),
     response: z.enum(["accept", "reject"]),
   }).strict(),
+  z.object({
+    id: commandIdSchema,
+    type: z.literal("cancelTrade"),
+    tradeId: z.string().min(1).max(100),
+  }).strict(),
   z.object({ id: commandIdSchema, type: z.literal("endTurn") }).strict(),
 ]);
 

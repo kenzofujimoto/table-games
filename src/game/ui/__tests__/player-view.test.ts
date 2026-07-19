@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { GameState } from "@/game/application/game-engine";
 import { emptyResources, type Player } from "@/game/domain/types";
 
-import { canOpenTrade, canPlayerInteract, resourceCardTotal } from "../player-view";
+import { canAcceptTrade, canOpenTrade, canPlayerInteract, pendingTradeForViewer, resourceCardTotal } from "../player-view";
 
 function player(id: string): Player {
   return {
@@ -34,7 +34,7 @@ describe("player-specific game view", () => {
       activePlayerIndex: 0,
       phase: "actions",
       pendingDiscards: {},
-    } as GameState;
+    } as unknown as GameState;
     expect(canPlayerInteract(state, "p1")).toBe(true);
     expect(canPlayerInteract(state, "p2")).toBe(false);
     expect(canPlayerInteract({ ...state, phase: "discard", pendingDiscards: { p2: 3 } }, "p2")).toBe(true);
@@ -54,12 +54,47 @@ describe("player-specific game view", () => {
         targetPlayerIds: ["p2"],
         status: "open",
         responderId: null,
+        rejectedPlayerIds: [],
       }],
-    } as GameState;
+    } as unknown as GameState;
 
     expect(canOpenTrade(state, "p1")).toBe(true);
     expect(canOpenTrade(state, "p2")).toBe(true);
     expect(canOpenTrade(state, "p3")).toBe(false);
     expect(canOpenTrade({ ...state, phase: "roll" }, "p2")).toBe(false);
+  });
+
+  it("shows a pending request only to recipients who have not refused and validates their hand", () => {
+    const trade = {
+      id: "trade-2",
+      proposerId: "p1",
+      offer: { ...emptyResources(), wood: 2 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2", "p3"],
+      status: "open" as const,
+      responderId: null,
+      rejectedPlayerIds: ["p3"],
+    };
+    const state = {
+      players: [
+        { ...player("p1"), resources: { ...emptyResources(), wood: 2 } },
+        player("p2"),
+        player("p3"),
+      ],
+      activePlayerIndex: 0,
+      phase: "actions",
+      pendingDiscards: {},
+      trades: [trade],
+    } as unknown as GameState;
+
+    expect(pendingTradeForViewer(state, "p2")?.id).toBe("trade-2");
+    expect(pendingTradeForViewer(state, "p3")).toBeNull();
+    expect(canAcceptTrade(state, trade, "p2")).toEqual({ canAccept: false, missing: { ore: 1 } });
+    expect(canAcceptTrade({
+      ...state,
+      players: state.players.map((candidate) => candidate.id === "p2"
+        ? { ...candidate, resources: { ...emptyResources(), ore: 1 } }
+        : candidate),
+    }, trade, "p2")).toEqual({ canAccept: true, missing: {} });
   });
 });

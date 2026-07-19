@@ -3,6 +3,9 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { repository, useAppStore } from "../store";
+import { createGame } from "@/game/application/game-engine";
+import { makePlayer } from "@/game/domain/__tests__/fixtures";
+import { emptyResources } from "@/game/domain/types";
 import type { PlayerProfile, RoomSettings } from "@/multiplayer/types";
 
 import { App } from "../App";
@@ -68,6 +71,17 @@ describe("Auren application shell", () => {
     expect(screen.getByRole("heading", { name: /Maior rota/i })).toBeInTheDocument();
   });
 
+  it("returns to the top when navigating between application pages", async () => {
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    render(<App />);
+    scrollTo.mockClear();
+
+    await user.click(screen.getByRole("link", { name: /Regras/i }));
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: "auto" });
+  });
+
   it("copies an invite URL that routes guests through room registration", async () => {
     const room = await repository.createRoom({ name: "Mesa privada", host, settings });
     useAppStore.setState({ profile: host, room });
@@ -115,5 +129,42 @@ describe("Auren application shell", () => {
     expect(await screen.findByText("Convidado", { selector: "strong" })).toBeInTheDocument();
     expect(screen.getByText("2/3")).toBeInTheDocument();
     expect(useAppStore.getState().profile?.color).toBe("tide");
+  });
+
+  it("opens a trade request automatically for every pending recipient", async () => {
+    const game = createGame({
+      id: "game-popup",
+      roomCode: "POPUP2",
+      seed: "popup-trade",
+      players: [makePlayer("p1"), makePlayer("p2"), makePlayer("p3")],
+      targetScore: 10,
+    });
+    game.phase = "actions";
+    game.players[0]!.resources = { ...emptyResources(), wood: 1 };
+    game.players[1]!.resources = { ...emptyResources(), ore: 1 };
+    game.trades = [{
+      id: "popup-trade",
+      proposerId: "p1",
+      offer: { ...emptyResources(), wood: 1 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2", "p3"],
+      status: "open",
+      responderId: null,
+      rejectedPlayerIds: [],
+    }];
+    const viewer: PlayerProfile = {
+      id: "p2",
+      name: "Convidado",
+      color: "tide",
+      avatar: "compass",
+      crest: "wave",
+    };
+    useAppStore.setState({ profile: viewer, game });
+    window.history.pushState({}, "", "/jogo/game-popup");
+
+    render(<App />);
+
+    expect(await screen.findByRole("dialog", { name: /Solicitação de troca/i })).toBeInTheDocument();
+    expect(screen.getByText(/Player p1 oferece/i)).toBeInTheDocument();
   });
 });

@@ -1,10 +1,11 @@
-import { LocateFixed, Minus, Plus } from "lucide-react";
+import { Anchor, LocateFixed, Minus, Plus } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import type { GameState } from "@/game/application/game-engine";
 import type { BoardPort } from "@/game/domain/types";
 
 import { clampCamera, clientDeltaToViewBox } from "./board-camera";
+import { RESOURCE_META } from "./resource-meta";
 
 interface HexBoardProps {
   state: GameState;
@@ -70,6 +71,7 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
       <svg
         className="hex-board"
         viewBox="-390 -310 780 620"
+        preserveAspectRatio="xMidYMid meet"
         role="img"
         aria-label="Tabuleiro hexagonal interativo"
         onWheel={(event) => { event.preventDefault(); zoom(event.deltaY < 0 ? 0.08 : -0.08); }}
@@ -100,7 +102,7 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
             <image href={`/textures/${terrain}.webp`} x="0" y="0" width="132" height="132" preserveAspectRatio="xMidYMid slice" />
           </pattern>)}
         </defs>
-        <rect x="-500" y="-400" width="1000" height="800" rx="36" fill="url(#ocean)" />
+        <rect className="board-ocean-backdrop" x="-2048" y="-2048" width="4096" height="4096" fill="url(#ocean)" />
         <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`}>
           {state.board.ports.map((port) => {
             const edge = state.board.edges.find((candidate) => candidate.id === port.edgeId);
@@ -113,11 +115,13 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
             const distance = Math.hypot(midpointX, midpointY) || 1;
             const x = midpointX + (midpointX / distance) * 22;
             const y = midpointY + (midpointY / distance) * 22;
+            const PortIcon = port.kind === "generic" ? Anchor : RESOURCE_META[port.kind].icon;
             return <g key={port.id} className={`board-port board-port--${port.kind}`} aria-label={portAriaLabel(port)}>
               <line className="port-pier" x1={x1} y1={y1} x2={x} y2={y} />
               <line className="port-pier" x1={x2} y1={y2} x2={x} y2={y} />
-              <circle className="port-badge" cx={x} cy={y} r="19" />
-              <text className="port-ratio" x={x} y={y + 4}>{port.ratio}:1</text>
+              <circle className="port-badge" cx={x} cy={y} r="22" />
+              <PortIcon className={`port-resource-icon port-resource-icon--${port.kind}`} x={x - 8} y={y - 16} width="16" height="16" />
+              <text className="port-ratio" x={x} y={y + 14}>{port.ratio}:1</text>
             </g>;
           })}
 
