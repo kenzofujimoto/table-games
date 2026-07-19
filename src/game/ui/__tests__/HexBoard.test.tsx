@@ -58,4 +58,28 @@ describe("HexBoard", () => {
       expect(container.querySelector(`pattern#terrain-${terrain} image[href="/textures/${terrain}.webp"]`)).not.toBeNull();
     }
   });
+
+  it("keeps an ocean backdrop behind the board during zoom and drag", () => {
+    const state = createGame({
+      id: "game-camera",
+      roomCode: "CAMERA",
+      seed: "safe-camera",
+      players: [makePlayer("p1"), makePlayer("p2")],
+      targetScore: 10,
+    });
+
+    const { container } = render(<HexBoard
+      state={state}
+      validVertexIds={new Set()}
+      validEdgeIds={new Set()}
+      selectableTiles={false}
+      onVertex={vi.fn()}
+      onEdge={vi.fn()}
+      onTile={vi.fn()}
+    />);
+
+    const svg = screen.getByRole("img", { name: /Tabuleiro hexagonal/i });
+    expect(svg).toHaveAttribute("preserveAspectRatio", "xMidYMid meet");
+    expect(container.querySelector(".board-ocean-backdrop")).toBeInTheDocument();
+  });
 });
