@@ -1,10 +1,11 @@
-import { LocateFixed, Minus, Plus } from "lucide-react";
+import { Anchor, LocateFixed, Minus, Plus } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 
 import type { GameState } from "@/game/application/game-engine";
 import type { BoardPort } from "@/game/domain/types";
 
 import { clampCamera, clientDeltaToViewBox } from "./board-camera";
+import { RESOURCE_META } from "./resource-meta";
 
 interface HexBoardProps {
   state: GameState;
@@ -114,11 +115,13 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
             const distance = Math.hypot(midpointX, midpointY) || 1;
             const x = midpointX + (midpointX / distance) * 22;
             const y = midpointY + (midpointY / distance) * 22;
+            const PortIcon = port.kind === "generic" ? Anchor : RESOURCE_META[port.kind].icon;
             return <g key={port.id} className={`board-port board-port--${port.kind}`} aria-label={portAriaLabel(port)}>
               <line className="port-pier" x1={x1} y1={y1} x2={x} y2={y} />
               <line className="port-pier" x1={x2} y1={y2} x2={x} y2={y} />
-              <circle className="port-badge" cx={x} cy={y} r="19" />
-              <text className="port-ratio" x={x} y={y + 4}>{port.ratio}:1</text>
+              <circle className="port-badge" cx={x} cy={y} r="22" />
+              <PortIcon className={`port-resource-icon port-resource-icon--${port.kind}`} x={x - 8} y={y - 16} width="16" height="16" />
+              <text className="port-ratio" x={x} y={y + 14}>{port.ratio}:1</text>
             </g>;
           })}
 
