@@ -90,6 +90,22 @@ describe("authoritative presence", () => {
     await expect(service.authenticate(room.code, guest.sessionToken)).resolves.toMatchObject({ playerId: "p2" });
   });
 
+  it("transfers a crashed lobby host only after reconnection grace expires", async () => {
+    const { service, advance } = setup();
+    const host = await service.createRoom({ name: "Mesa", host: profiles[0]!, settings });
+    const guest = await service.joinRoom(host.room.code, profiles[1]!);
+    await service.connectPresence(host.room.code, host.sessionToken, "host-device");
+    await service.connectPresence(host.room.code, guest.sessionToken, "guest-device");
+
+    advance(50_000);
+    await service.heartbeatPresence(host.room.code, "p2", "guest-device");
+    expect((await service.getRoom(host.room.code))?.hostId).toBe("p1");
+
+    advance(20_000);
+    await service.heartbeatPresence(host.room.code, "p2", "guest-device");
+    expect((await service.getRoom(host.room.code))?.hostId).toBe("p2");
+  });
+
   it("preserves a playing seat under autopilot and lets the authenticated player reclaim it", async () => {
     const { service } = setup();
     const host = await service.createRoom({ name: "Mesa", host: profiles[0]!, settings });
