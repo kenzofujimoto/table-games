@@ -89,6 +89,9 @@ export async function handleRoomApi(request: ApiRequest, service: GameSessionSer
     if (payload.action === "ready") {
       return { status: 200, body: await service.setReady(payload.roomCode, token, payload.ready) };
     }
+    if (payload.action === "leave") {
+      return { status: 200, body: await service.leaveRoom(payload.roomCode, token) };
+    }
     return { status: 200, body: await service.startGame(payload.roomCode, token) };
   } catch (error) {
     return errorResult(error);

@@ -24,12 +24,15 @@ import {
   roomSettingsSchema,
   type CreateRoomInput,
   type GameRoom,
+  type PlayerPresence,
   type PlayerProfile,
 } from "../src/multiplayer/types.js";
 import type { OnlineStore, StoredRoomRecord } from "./online-store.js";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const MAX_UPDATE_ATTEMPTS = 5;
+const PRESENCE_LEASE_MS = 45_000;
+const RECONNECT_GRACE_MS = 60_000;
 
 interface ServiceDependencies {
   now?: () => Date;
@@ -68,6 +71,9 @@ function playerFromProfile(profile: PlayerProfile): Player {
     color: profile.color,
     avatar: profile.avatar,
     connected: true,
+    connectionStatus: "online",
+    control: "human",
+    lastSeenAt: null,
     ready: true,
     resources: emptyResources(),
     remainingPieces: { roads: 15, settlements: 5, cities: 4 },
@@ -113,6 +119,83 @@ export class GameSessionService {
     this.issueToken = dependencies.issueToken ?? (() => randomBytes(32).toString("base64url"));
   }
 
+  private async playerPresence(room: GameRoom): Promise<PlayerPresence[]> {
+    const leases = await this.store.getPresence(room.code);
+    const now = this.now().getTime();
+    return room.players.map((player) => {
+      const playerLeases = leases.filter((lease) => lease.playerId === player.profile.id);
+      const latest = playerLeases.reduce<(typeof playerLeases)[number] | null>((current, lease) => (
+        current === null || Date.parse(lease.lastSeenAt) > Date.parse(current.lastSeenAt) ? lease : current
+      ), null);
+      const online = playerLeases.some((lease) => Date.parse(lease.expiresAt) > now);
+      const lastSeenAt = latest?.lastSeenAt ?? player.lastSeenAt ?? null;
+      const withinGrace = lastSeenAt !== null && now - Date.parse(lastSeenAt) <= RECONNECT_GRACE_MS;
+      const status = player.control === "autopilot"
+        ? "autopilot" as const
+        : online
+          ? "online" as const
+          : withinGrace
+            ? "reconnecting" as const
+            : "offline" as const;
+      return { playerId: player.profile.id, status, lastSeenAt };
+    });
+  }
+
+  private async hydrateRoomPresence(room: GameRoom): Promise<GameRoom> {
+    const presence = await this.playerPresence(room);
+    return {
+      ...room,
+      players: room.players.map((player) => {
+        const current = presence.find((candidate) => candidate.playerId === player.profile.id)!;
+        return {
+          ...player,
+          connected: current.status === "online",
+          connectionStatus: current.status,
+          lastSeenAt: current.lastSeenAt,
+          control: player.control ?? "human",
+        };
+      }),
+    };
+  }
+
+  private async publishPresence(room: GameRoom): Promise<PlayerPresence[]> {
+    const players = await this.playerPresence(room);
+    await this.store.publish(room.code, { type: "presence", roomCode: room.code, players });
+    return players;
+  }
+
+  private async setGamePlayerControl(room: GameRoom, playerId: string, control: "human" | "autopilot"): Promise<void> {
+    if (!room.gameId) return;
+    for (let attempt = 0; attempt < MAX_UPDATE_ATTEMPTS; attempt += 1) {
+      const state = await this.store.getGame(room.gameId);
+      if (!state) return;
+      const player = state.players.find((candidate) => candidate.id === playerId);
+      if (!player || (player.control ?? "human") === control) return;
+      const next: GameState = {
+        ...state,
+        version: state.version + 1,
+        players: state.players.map((candidate) => candidate.id === playerId
+          ? {
+              ...candidate,
+              control,
+              connected: control === "human",
+              connectionStatus: control === "human" ? "online" : "autopilot",
+            }
+          : candidate),
+      };
+      if (await this.store.compareAndSetGame(state.id, state.version, next)) {
+        await this.store.publish(room.code, {
+          type: "gameUpdated",
+          roomCode: room.code,
+          gameId: state.id,
+          version: next.version,
+        });
+        return;
+      }
+    }
+    throw new Error("Game update conflict: try again");
+  }
+
   async createRoom(input: CreateRoomInput): Promise<RoomSession> {
     const host = playerProfileSchema.parse(input.host);
     const settings = roomSettingsSchema.parse(input.settings);
@@ -135,7 +218,16 @@ export class GameSessionService {
         hostId: host.id,
         status: "lobby",
         settings,
-        players: [{ profile: host, ready: false, connected: true, seat: 0, joinedAt: now }],
+        players: [{
+          profile: host,
+          ready: false,
+          connected: false,
+          connectionStatus: "reconnecting",
+          control: "human",
+          lastSeenAt: null,
+          seat: 0,
+          joinedAt: now,
+        }],
         createdAt: now,
         gameId: null,
       });
@@ -153,7 +245,28 @@ export class GameSessionService {
   }
 
   async getRoom(code: string): Promise<GameRoom | null> {
-    return (await this.store.getRoom(normalizeCode(code)))?.room ?? null;
+    const normalized = normalizeCode(code);
+    const record = await this.store.getRoom(normalized);
+    if (!record) return null;
+    let room = record.room;
+    if (room.status === "lobby") {
+      const presence = await this.playerPresence(room);
+      const host = presence.find((player) => player.playerId === room.hostId);
+      const successor = room.players.find((player) => (
+        player.profile.id !== room.hostId
+        && presence.find((candidate) => candidate.playerId === player.profile.id)?.status === "online"
+      ));
+      if (host?.status === "offline" && successor) {
+        const changed = await this.updateRoom(normalized, (current) => ({
+          ...current,
+          revision: current.revision + 1,
+          room: { ...current.room, hostId: successor.profile.id },
+        }));
+        room = changed.room;
+        await this.store.publish(normalized, { type: "roomUpdated", roomCode: normalized });
+      }
+    }
+    return this.hydrateRoomPresence(room);
   }
 
   async joinRoom(code: string, rawProfile: PlayerProfile): Promise<RoomSession> {
@@ -175,7 +288,10 @@ export class GameSessionService {
           players: [...room.players, {
             profile,
             ready: false,
-            connected: true,
+            connected: false,
+            connectionStatus: "reconnecting",
+            control: "human",
+            lastSeenAt: null,
             seat: room.players.length,
             joinedAt: this.now().toISOString(),
           }],
@@ -185,6 +301,98 @@ export class GameSessionService {
     });
     await this.store.publish(normalized, { type: "roomUpdated", roomCode: normalized });
     return { room: record.room, sessionToken: token };
+  }
+
+  async connectPresence(code: string, token: string, connectionId: string): Promise<PlayerPresence[]> {
+    const normalized = normalizeCode(code);
+    const authenticated = await this.authenticate(normalized, token);
+    let room = authenticated.record.room;
+    const player = room.players.find((candidate) => candidate.profile.id === authenticated.playerId)!;
+    if (player.control === "autopilot") {
+      const changed = await this.updateRoom(normalized, (current) => ({
+        ...current,
+        revision: current.revision + 1,
+        room: {
+          ...current.room,
+          players: current.room.players.map((candidate) => candidate.profile.id === authenticated.playerId
+            ? { ...candidate, control: "human", connectionStatus: "online" }
+            : candidate),
+        },
+      }));
+      room = changed.room;
+      await this.setGamePlayerControl(room, authenticated.playerId, "human");
+      await this.store.publish(normalized, { type: "roomUpdated", roomCode: normalized });
+    }
+    const lastSeenAt = this.now().toISOString();
+    await this.store.touchPresence({
+      roomCode: normalized,
+      playerId: authenticated.playerId,
+      connectionId,
+      lastSeenAt,
+      expiresAt: new Date(this.now().getTime() + PRESENCE_LEASE_MS).toISOString(),
+    });
+    return this.publishPresence(room);
+  }
+
+  async heartbeatPresence(code: string, playerId: string, connectionId: string): Promise<PlayerPresence[]> {
+    const normalized = normalizeCode(code);
+    const record = await this.store.getRoom(normalized);
+    if (!record?.room.players.some((player) => player.profile.id === playerId)) {
+      throw new Error("Player is not in the room");
+    }
+    const lastSeenAt = this.now().toISOString();
+    await this.store.touchPresence({
+      roomCode: normalized,
+      playerId,
+      connectionId,
+      lastSeenAt,
+      expiresAt: new Date(this.now().getTime() + PRESENCE_LEASE_MS).toISOString(),
+    });
+    return this.publishPresence(record.room);
+  }
+
+  async leaveRoom(code: string, token: string): Promise<GameRoom> {
+    const normalized = normalizeCode(code);
+    const authenticated = await this.authenticate(normalized, token);
+    if (authenticated.record.room.status === "lobby") {
+      const changed = await this.updateRoom(normalized, (current) => {
+        const players = current.room.players.filter((player) => player.profile.id !== authenticated.playerId);
+        const { [authenticated.playerId]: _removed, ...sessionHashes } = current.sessionHashes;
+        void _removed;
+        return {
+          ...current,
+          revision: current.revision + 1,
+          sessionHashes,
+          room: {
+            ...current.room,
+            hostId: current.room.hostId === authenticated.playerId
+              ? players[0]?.profile.id ?? current.room.hostId
+              : current.room.hostId,
+            players: players.map((player, seat) => ({ ...player, seat })),
+          },
+        };
+      });
+      await this.store.removePlayerPresence(normalized, authenticated.playerId);
+      await this.store.publish(normalized, { type: "roomUpdated", roomCode: normalized });
+      await this.publishPresence(changed.room);
+      return this.hydrateRoomPresence(changed.room);
+    }
+
+    const changed = await this.updateRoom(normalized, (current) => ({
+      ...current,
+      revision: current.revision + 1,
+      room: {
+        ...current.room,
+        players: current.room.players.map((player) => player.profile.id === authenticated.playerId
+          ? { ...player, connected: false, connectionStatus: "autopilot", control: "autopilot" }
+          : player),
+      },
+    }));
+    await this.store.removePlayerPresence(normalized, authenticated.playerId);
+    await this.setGamePlayerControl(changed.room, authenticated.playerId, "autopilot");
+    await this.store.publish(normalized, { type: "roomUpdated", roomCode: normalized });
+    await this.publishPresence(changed.room);
+    return this.hydrateRoomPresence(changed.room);
   }
 
   async authenticate(code: string, token: string): Promise<{ playerId: string; record: StoredRoomRecord }> {
@@ -255,8 +463,23 @@ export class GameSessionService {
   async getGameView(gameId: string, token: string): Promise<GameState> {
     const state = await this.store.getGame(gameId);
     if (!state) throw new Error("Game was not found");
-    const { playerId } = await this.authenticate(state.roomCode, token);
-    return sanitizeGameState(state, playerId);
+    const { playerId, record } = await this.authenticate(state.roomCode, token);
+    const presence = await this.playerPresence(record.room);
+    const hydrated: GameState = {
+      ...state,
+      players: state.players.map((player) => {
+        const current = presence.find((candidate) => candidate.playerId === player.id);
+        const roomPlayer = record.room.players.find((candidate) => candidate.profile.id === player.id);
+        return {
+          ...player,
+          connected: current?.status === "online",
+          connectionStatus: current?.status ?? "offline",
+          lastSeenAt: current?.lastSeenAt ?? null,
+          control: roomPlayer?.control ?? player.control ?? "human",
+        };
+      }),
+    };
+    return sanitizeGameState(hydrated, playerId);
   }
 
   async executeCommand(

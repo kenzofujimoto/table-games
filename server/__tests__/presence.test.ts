@@ -37,7 +37,7 @@ function setup() {
   return {
     service,
     store,
-    advance(milliseconds: number) {
+    advance: (milliseconds: number) => {
       currentTime = new Date(currentTime.getTime() + milliseconds);
     },
   };

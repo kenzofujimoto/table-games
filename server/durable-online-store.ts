@@ -1,6 +1,6 @@
 import type { GameState } from "../src/game/application/game-engine.js";
 import type { ChatMessage, ServerRealtimeMessage } from "../src/multiplayer/protocol.js";
-import type { OnlineStore, StoredRoomRecord } from "./online-store.js";
+import type { OnlineStore, PresenceLease, StoredRoomRecord } from "./online-store.js";
 
 export interface SnapshotArchive {
   writeRoom(record: StoredRoomRecord): Promise<void>;
@@ -55,6 +55,18 @@ export class DurableOnlineStore implements OnlineStore {
     const changed = await this.cache.compareAndSetGame(gameId, expectedVersion, state);
     if (changed) await this.archive.writeGame(state);
     return changed;
+  }
+
+  async touchPresence(lease: PresenceLease): Promise<void> {
+    await this.cache.touchPresence(lease);
+  }
+
+  async getPresence(roomCode: string): Promise<PresenceLease[]> {
+    return this.cache.getPresence(roomCode);
+  }
+
+  async removePlayerPresence(roomCode: string, playerId: string): Promise<void> {
+    await this.cache.removePlayerPresence(roomCode, playerId);
   }
 
   async appendChat(message: ChatMessage): Promise<void> {

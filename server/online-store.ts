@@ -8,6 +8,14 @@ export interface StoredRoomRecord {
   sessionHashes: Record<string, string>;
 }
 
+export interface PresenceLease {
+  roomCode: string;
+  playerId: string;
+  connectionId: string;
+  lastSeenAt: string;
+  expiresAt: string;
+}
+
 export interface OnlineStore {
   getRoom(code: string): Promise<StoredRoomRecord | null>;
   createRoom(record: StoredRoomRecord): Promise<boolean>;
@@ -15,6 +23,9 @@ export interface OnlineStore {
   getGame(gameId: string): Promise<GameState | null>;
   createGame(state: GameState): Promise<boolean>;
   compareAndSetGame(gameId: string, expectedVersion: number, state: GameState): Promise<boolean>;
+  touchPresence(lease: PresenceLease): Promise<void>;
+  getPresence(roomCode: string): Promise<PresenceLease[]>;
+  removePlayerPresence(roomCode: string, playerId: string): Promise<void>;
   appendChat(message: ChatMessage): Promise<void>;
   getChat(roomCode: string, limit: number): Promise<ChatMessage[]>;
   publish(channel: string, event: ServerRealtimeMessage): Promise<void>;

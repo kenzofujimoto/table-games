@@ -1,6 +1,6 @@
 import type { GameState } from "../src/game/application/game-engine.js";
 import type { ChatMessage, ServerRealtimeMessage } from "../src/multiplayer/protocol.js";
-import type { OnlineStore, StoredRoomRecord } from "./online-store.js";
+import type { OnlineStore, PresenceLease, StoredRoomRecord } from "./online-store.js";
 
 function clone<T>(value: T): T {
   return structuredClone(value);
@@ -10,6 +10,7 @@ export class InMemoryOnlineStore implements OnlineStore {
   private readonly rooms = new Map<string, StoredRoomRecord>();
   private readonly games = new Map<string, GameState>();
   private readonly chat = new Map<string, ChatMessage[]>();
+  private readonly presence = new Map<string, Map<string, PresenceLease>>();
   private readonly listeners = new Map<string, Set<(event: ServerRealtimeMessage) => void>>();
 
   async getRoom(code: string): Promise<StoredRoomRecord | null> {
@@ -46,6 +47,27 @@ export class InMemoryOnlineStore implements OnlineStore {
     if (!current || current.version !== expectedVersion || state.version !== expectedVersion + 1) return false;
     this.games.set(gameId, clone(state));
     return true;
+  }
+
+  async touchPresence(lease: PresenceLease): Promise<void> {
+    const code = lease.roomCode.toUpperCase();
+    const connections = this.presence.get(code) ?? new Map<string, PresenceLease>();
+    connections.set(lease.connectionId, clone({ ...lease, roomCode: code }));
+    this.presence.set(code, connections);
+  }
+
+  async getPresence(roomCode: string): Promise<PresenceLease[]> {
+    return clone([...this.presence.get(roomCode.toUpperCase())?.values() ?? []]);
+  }
+
+  async removePlayerPresence(roomCode: string, playerId: string): Promise<void> {
+    const code = roomCode.toUpperCase();
+    const connections = this.presence.get(code);
+    if (!connections) return;
+    for (const [connectionId, lease] of connections) {
+      if (lease.playerId === playerId) connections.delete(connectionId);
+    }
+    if (connections.size === 0) this.presence.delete(code);
   }
 
   async appendChat(message: ChatMessage): Promise<void> {

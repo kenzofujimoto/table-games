@@ -128,6 +128,15 @@ export function LobbyPage() {
       void navigate(`/jogo/${game.id}`);
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Não foi possível iniciar."); }
   };
+  const leave = async () => {
+    try {
+      await repository.leaveRoom(room.code, profile.id);
+      setRoom(null);
+      void navigate("/");
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Não foi possível sair da sala.");
+    }
+  };
   const sendChat = async () => {
     if (!chatInput.trim()) return;
     try {
@@ -146,7 +155,7 @@ export function LobbyPage() {
   return (
     <AppShell>
       <main className="lobby-page">
-        <header className="lobby-heading"><div><div className="eyebrow"><Radio size={14} /> SALA PRIVADA · {repository.kind === "online" ? "ONLINE" : "MODO LOCAL"}</div><h1>{room.name}</h1><p>Todos devem estar prontos antes da partida começar.</p></div><button className="button button--ghost" type="button" onClick={() => void navigate("/")}><LogOut /> Sair</button></header>
+        <header className="lobby-heading"><div><div className="eyebrow"><Radio size={14} /> SALA PRIVADA · {repository.kind === "online" ? "ONLINE" : "MODO LOCAL"}</div><h1>{room.name}</h1><p>Todos devem estar prontos antes da partida começar.</p></div><button className="button button--ghost" type="button" onClick={() => void leave()}><LogOut /> Sair</button></header>
         <div className="lobby-layout">
           <section className="lobby-panel">
             <div className="panel-title"><span><Users /> Exploradores</span><small>{room.players.length}/{room.settings.maxPlayers ?? "∞"}</small></div>
@@ -154,7 +163,7 @@ export function LobbyPage() {
               {room.players.map((player) => (
                 <article className="lobby-player" key={player.profile.id}>
                   <span className={`avatar-token avatar-token--${player.profile.color}`}>{player.profile.name.slice(0, 1).toUpperCase()}</span>
-                  <div><strong>{player.profile.name} {player.profile.id.startsWith("local-") && <Bot size={14} />}</strong><small><span className={`presence ${player.connected ? "is-online" : ""}`} />{player.connected ? "Conectado" : "Reconectando"}</small></div>
+                  <div><strong>{player.profile.name} {player.profile.id.startsWith("local-") && <Bot size={14} />}</strong><small><span className={`presence ${player.connected ? "is-online" : ""}`} />{{ online: "Online", reconnecting: "Reconectando", offline: "Offline", autopilot: "Piloto automático" }[player.connectionStatus ?? (player.connected ? "online" : "reconnecting")]}</small></div>
                   {player.profile.id === room.hostId && <span className="host-badge"><Crown /> Anfitrião</span>}
                   <span className={`ready-badge ${player.ready ? "is-ready" : ""}`}>{player.ready ? <><Check /> Pronto</> : "Aguardando"}</span>
                 </article>

@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { GameCommand, GameState } from "../game/application/game-engine.js";
+import type { ConnectionStatus, PlayerControl } from "../game/domain/types.js";
 import { AUREN_GAME_ID } from "../games/game-registry.js";
 
 import type { ChatMessage } from "./protocol.js";
@@ -38,11 +39,22 @@ export const roomPlayerSchema = z.object({
   profile: playerProfileSchema,
   ready: z.boolean(),
   connected: z.boolean(),
+  connectionStatus: z.enum(["online", "reconnecting", "offline", "autopilot"]).optional(),
+  control: z.enum(["human", "autopilot"]).optional(),
+  lastSeenAt: z.string().nullable().optional(),
   seat: z.number().int().nonnegative(),
   joinedAt: z.string(),
 });
 
 export type RoomPlayer = z.infer<typeof roomPlayerSchema>;
+
+export interface PlayerPresence {
+  playerId: string;
+  status: ConnectionStatus;
+  lastSeenAt: string | null;
+}
+
+export type { ConnectionStatus, PlayerControl };
 
 export const gameRoomSchema = z.object({
   id: z.string().min(1),
@@ -84,6 +96,7 @@ export interface GameRepository {
   getRoom(code: string): Promise<GameRoom | null>;
   joinRoom(code: string, profile: PlayerProfile): Promise<GameRoom>;
   setReady(code: string, playerId: string, ready: boolean): Promise<GameRoom>;
+  leaveRoom(code: string, playerId: string): Promise<GameRoom>;
   startGame(code: string, actorId: string): Promise<GameRoom>;
   saveGame(state: GameState): Promise<void>;
   loadGame(gameId: string): Promise<GameState | null>;

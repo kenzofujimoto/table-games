@@ -180,6 +180,48 @@ export class LocalGameRepository implements GameRepository {
     return next;
   }
 
+  async leaveRoom(code: string, playerId: string): Promise<GameRoom> {
+    const normalized = normalizeCode(code);
+    const rooms = this.rooms();
+    const room = rooms[normalized];
+    if (!room) throw new Error("Room was not found");
+    if (!room.players.some((player) => player.profile.id === playerId)) throw new Error("Player is not in the room");
+    let next: GameRoom;
+    if (room.status === "lobby") {
+      const players = room.players.filter((player) => player.profile.id !== playerId);
+      next = {
+        ...room,
+        hostId: room.hostId === playerId ? players[0]?.profile.id ?? room.hostId : room.hostId,
+        players: players.map((player, seat) => ({ ...player, seat })),
+      };
+    } else {
+      next = {
+        ...room,
+        players: room.players.map((player) => player.profile.id === playerId
+          ? { ...player, connected: false, connectionStatus: "autopilot", control: "autopilot" }
+          : player),
+      };
+      if (room.gameId) {
+        const games = safeParseRecord(this.storage.getItem(GAMES_KEY));
+        const game = games[room.gameId] as GameState | undefined;
+        if (game) {
+          games[room.gameId] = {
+            ...game,
+            version: game.version + 1,
+            players: game.players.map((player) => player.id === playerId
+              ? { ...player, connected: false, connectionStatus: "autopilot", control: "autopilot" }
+              : player),
+          };
+          this.storage.setItem(GAMES_KEY, JSON.stringify(games));
+        }
+      }
+    }
+    rooms[normalized] = next;
+    this.persistRooms(rooms);
+    this.emit({ kind: "room", roomCode: normalized });
+    return next;
+  }
+
   async startGame(code: string, actorId: string): Promise<GameRoom> {
     const normalized = normalizeCode(code);
     const rooms = this.rooms();

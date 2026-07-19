@@ -155,6 +155,17 @@ export class OnlineGameRepository implements GameRepository {
     }));
   }
 
+  async leaveRoom(code: string, playerId: string): Promise<GameRoom> {
+    const session = this.requireSession(code, playerId);
+    const room = gameRoomSchema.parse(await this.request("/api/rooms", {
+      method: "POST",
+      token: session.sessionToken,
+      body: { action: "leave", roomCode: code },
+    }));
+    if (!room.players.some((player) => player.profile.id === playerId)) this.removeSession(code);
+    return room;
+  }
+
   async startGame(code: string, actorId: string): Promise<GameRoom> {
     const session = this.requireSession(code, actorId);
     const room = gameRoomSchema.parse(await this.request("/api/rooms", {
@@ -207,6 +218,7 @@ export class OnlineGameRepository implements GameRepository {
       else if (message.type === "gameUpdated") listener({ kind: "game", roomCode: message.roomCode });
       else if (message.type === "chat") listener({ kind: "chat", roomCode: message.payload.roomCode, message: message.payload });
       else if (message.type === "connected") listener({ kind: "connection", roomCode: message.roomCode, connected: true });
+      else if (message.type === "presence") listener({ kind: "room", roomCode: message.roomCode });
       else if (message.type === "error") console.warn(`Realtime ${message.code}: ${message.message}`);
     });
     const poll = window.setInterval(() => listener({ kind: "room", roomCode: roomCode.toUpperCase() }), 5_000);
@@ -220,6 +232,13 @@ export class OnlineGameRepository implements GameRepository {
     const sessions = readSessions(this.storage);
     sessions[code.toUpperCase()] = { playerId, sessionToken };
     this.storage.setItem(SESSION_KEY, JSON.stringify(sessions));
+  }
+
+  private removeSession(code: string): void {
+    const sessions = readSessions(this.storage);
+    const normalized = code.toUpperCase();
+    const remaining = Object.fromEntries(Object.entries(sessions).filter(([roomCode]) => roomCode !== normalized));
+    this.storage.setItem(SESSION_KEY, JSON.stringify(remaining));
   }
 
   private requireSession(code: string, playerId?: string): RepositorySession {

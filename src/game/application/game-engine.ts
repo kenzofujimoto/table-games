@@ -235,6 +235,9 @@ export function createGame(input: CreateGameInput): GameState {
 
   const preparedPlayers = clonePlayers(input.players).map((player) => ({
     ...player,
+    connectionStatus: player.connectionStatus ?? "online",
+    control: player.control ?? "human",
+    lastSeenAt: player.lastSeenAt ?? null,
     resources: emptyResources(),
     remainingPieces: { roads: 15, settlements: 5, cities: 4 },
     developmentCards: [],

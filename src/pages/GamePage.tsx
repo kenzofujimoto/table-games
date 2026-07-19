@@ -1,6 +1,6 @@
-import { ArrowRightLeft, BookOpenCheck, Building2, ChevronRight, Clock3, Crown, Dices, Flag, Home, MapPin, Radio, Route, Settings, ShieldAlert, Sparkles, Trophy, Users, X } from "lucide-react";
+import { ArrowRightLeft, BookOpenCheck, Building2, ChevronRight, Clock3, Crown, Dices, Flag, Home, LogOut, MapPin, Radio, Route, Settings, ShieldAlert, Sparkles, Trophy, Users, X } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, Navigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { repository, useAppStore } from "@/app/store";
 import type { GameCommand } from "@/game/application/game-engine";
@@ -37,6 +37,7 @@ export function GamePage() {
   const [loading, setLoading] = useState(storedGame?.id !== gameId);
   const [buildMode, setBuildMode] = useState<BuildMode>(null);
   const [modal, setModal] = useState<"trade" | "development" | null>(null);
+  const navigate = useNavigate();
   const game = storedGame?.id === gameId ? storedGame : null;
 
   useEffect(() => {
@@ -54,7 +55,7 @@ export function GamePage() {
     void reload();
     const roomCode = storedGame?.roomCode ?? storedRoom?.code;
     const unsubscribe = roomCode ? repository.subscribe(roomCode, (event) => {
-      if (event.kind === "game" || event.kind === "connection") void reload();
+      if (event.kind === "game" || event.kind === "room" || event.kind === "connection") void reload();
     }) : () => undefined;
     return () => { active = false; unsubscribe(); };
   }, [gameId, setError, setGame, storedGame?.roomCode, storedRoom?.code]);
@@ -100,14 +101,20 @@ export function GamePage() {
     const victimId = tile.vertexIds.flatMap((vertexId) => game.board.vertices.find((vertex) => vertex.id === vertexId)?.building?.playerId ?? []).find((playerId) => playerId !== viewer.id && resourceCardTotal(game.players.find((player) => player.id === playerId)!) > 0) ?? null;
     void send({ id: crypto.randomUUID(), type: "moveRobber", actorId: viewer.id, tileId, victimId });
   };
+  const abandon = async () => {
+    if (!window.confirm("Abandonar a partida e deixar seu assento no piloto automático?")) return;
+    await repository.leaveRoom(game.roomCode, viewer.id);
+    setGame(null);
+    void navigate("/");
+  };
 
   return (
     <main className="game-screen">
-      <header className="game-topbar"><GameLogo compact /><div className="turn-banner"><span className={`avatar-token avatar-token--${actor.color}`}>{actor.name[0]}</span><div><small>TURNO {game.turnNumber}</small><strong>Vez de {actor.name}</strong></div><span className="phase-pill"><Radio /> {phaseLabels[game.phase]}</span></div><div className="game-top-actions"><span><Clock3 /> {Math.floor(game.config.turnSeconds / 60).toString().padStart(2, "0")}:00</span><Link to="/configuracoes" aria-label="Configurações"><Settings /></Link></div></header>
+      <header className="game-topbar"><GameLogo compact /><div className="turn-banner"><span className={`avatar-token avatar-token--${actor.color}`}>{actor.name[0]}</span><div><small>TURNO {game.turnNumber}</small><strong>Vez de {actor.name}</strong></div><span className="phase-pill"><Radio /> {phaseLabels[game.phase]}</span></div><div className="game-top-actions"><span><Clock3 /> {Math.floor(game.config.turnSeconds / 60).toString().padStart(2, "0")}:00</span><Link to="/configuracoes" aria-label="Configurações"><Settings /></Link><button type="button" onClick={() => void abandon()} aria-label="Abandonar partida"><LogOut /></button></div></header>
 
       <aside className="players-rail"><div className="rail-title"><Users /> Exploradores</div>{game.players.map((player, index) => {
         const score = calculateScore(player, game.board, game.achievements);
-        return <article className={`game-player-card ${index === game.activePlayerIndex ? "is-active" : ""}`} key={player.id}><span className={`avatar-token avatar-token--${player.color}`}>{player.name[0]}</span><div><strong>{player.name}</strong><small><span className={`presence ${player.connected ? "is-online" : ""}`} /> {player.connected ? "Online" : "Reconectando"}</small><span className="card-count">▰ {resourceCardTotal(player)} cartas</span></div><div className="score-gem">{score.visible}</div>{game.achievements.longestRoadPlayerId === player.id && <Route className="award-icon" />}{game.achievements.largestArmyPlayerId === player.id && <Crown className="award-icon" />}</article>;
+        return <article className={`game-player-card ${index === game.activePlayerIndex ? "is-active" : ""}`} key={player.id}><span className={`avatar-token avatar-token--${player.color}`}>{player.name[0]}</span><div><strong>{player.name}</strong><small><span className={`presence ${player.connected ? "is-online" : ""}`} /> {{ online: "Online", reconnecting: "Reconectando", offline: "Offline", autopilot: "Piloto automático" }[player.connectionStatus ?? (player.connected ? "online" : "reconnecting")]}</small><span className="card-count">▰ {resourceCardTotal(player)} cartas</span></div><div className="score-gem">{score.visible}</div>{game.achievements.longestRoadPlayerId === player.id && <Route className="award-icon" />}{game.achievements.largestArmyPlayerId === player.id && <Crown className="award-icon" />}</article>;
       })}<div className="seed-card"><MapPin /><span>Seed do mapa<strong>{game.seed}</strong></span></div></aside>
 
       <section className="board-stage"><div className="board-instruction"><Sparkles /><span><small>ETAPA ATUAL</small><strong>{phaseLabels[game.phase]}</strong></span></div><HexBoard state={game} {...interaction} onVertex={clickVertex} onEdge={clickEdge} onTile={clickTile} /></section>
