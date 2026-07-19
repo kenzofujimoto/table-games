@@ -62,7 +62,7 @@ describe("Auren application shell", () => {
     render(<App />);
     expect(screen.getByRole("heading", { name: /Regras de bordo/i })).toBeInTheDocument();
     expect(screen.getByText("Estrada", { selector: "strong" })).toBeInTheDocument();
-    expect(screen.getByText(/Maior rota/i)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Maior rota/i })).toBeInTheDocument();
   });
 
   it("copies an invite URL that routes guests through room registration", async () => {

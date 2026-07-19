@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { repository, useAppStore } from "@/app/store";
+import { shouldConfirmGameCommand } from "@/accessibility/experience";
 import type { GameCommand } from "@/game/application/game-engine";
 import { calculateScore } from "@/game/domain/scoring";
 import { validRoadEdges, validSettlementVertices } from "@/game/domain/placement";
@@ -35,6 +36,7 @@ export function GamePage() {
   const dispatch = useAppStore((store) => store.dispatch);
   const error = useAppStore((store) => store.error);
   const setError = useAppStore((store) => store.setError);
+  const settings = useAppStore((store) => store.settings);
   const [loading, setLoading] = useState(storedGame?.id !== gameId);
   const [buildMode, setBuildMode] = useState<BuildMode>(null);
   const [modal, setModal] = useState<"trade" | "development" | null>(null);
@@ -107,6 +109,11 @@ export function GamePage() {
   const tradeAvailable = canOpenTrade(game, viewer.id);
 
   const send = async (command: GameCommand) => {
+    const confirmBuild = shouldConfirmGameCommand(command.type, settings);
+    const confirmEndTurn = command.type === "endTurn" && game.config.confirmEndTurn;
+    if ((confirmBuild || confirmEndTurn) && !window.confirm(
+      confirmBuild ? "Confirmar esta construção e o gasto dos materiais?" : "Confirmar o fim do turno?",
+    )) return;
     const next = await dispatch(command);
     if (next) setBuildMode(null);
   };

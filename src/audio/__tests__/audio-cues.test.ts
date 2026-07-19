@@ -8,7 +8,7 @@ describe("game audio cues", () => {
     expect(audioCueForCommand("buildRoad")).toBe("build");
     expect(audioCueForCommand("placeSettlement")).toBe("build");
     expect(audioCueForCommand("bankTrade")).toBe("trade");
-    expect(audioCueForCommand("acceptTrade")).toBe("trade");
+    expect(audioCueForCommand("respondTrade")).toBe("trade");
     expect(audioCueForCommand("buyDevelopmentCard")).toBe("card");
     expect(audioCueForCommand("endTurn")).toBe("turn");
     expect(audioCueForCommand("discardResources")).toBeNull();

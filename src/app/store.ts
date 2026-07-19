@@ -1,6 +1,8 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import { audioCueForCommand } from "@/audio/audio-cues";
+import { audioManager } from "@/audio/audio-manager";
 import type { GameCommand, GameState } from "@/game/application/game-engine";
 import { createBrowserGameRepository } from "@/multiplayer/repository-factory";
 import type { GameRoom, PlayerProfile } from "@/multiplayer/types";
@@ -63,6 +65,8 @@ export const useAppStore = create<AppStore>()(persist(
       }
       try {
         const next = await repository.executeCommand(current, command);
+        const cue = audioCueForCommand(command.type);
+        if (cue) audioManager.play(cue);
         set({ game: next, error: null });
         return next;
       } catch (error) {

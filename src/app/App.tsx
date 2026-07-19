@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
+import { ExperienceController } from "@/accessibility/ExperienceController";
 import { CreateRoomPage } from "@/pages/CreateRoomPage";
 import { GamePage } from "@/pages/GamePage";
 import { HistoryPage } from "@/pages/HistoryPage";
@@ -13,6 +14,7 @@ import { SettingsPage } from "@/pages/SettingsPage";
 export function App() {
   return (
     <BrowserRouter>
+      <ExperienceController />
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/perfil" element={<ProfilePage />} />
