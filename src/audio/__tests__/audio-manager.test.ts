@@ -27,7 +27,7 @@ describe("game audio manager", () => {
 
     await manager.unlock();
 
-    expect(player.src).toBe(MUSIC_PLAYLIST[0]!.src);
+    expect(player.src).toBe(MUSIC_PLAYLIST[0].src);
     expect(player.volume).toBeCloseTo(0.245);
     expect(player.play).toHaveBeenCalledOnce();
 
@@ -43,7 +43,7 @@ describe("game audio manager", () => {
 
     player.onended?.(new Event("ended"));
 
-    expect(player.src).toBe(MUSIC_PLAYLIST[1]!.src);
+    expect(player.src).toBe(MUSIC_PLAYLIST[1].src);
     expect(player.load).toHaveBeenCalledOnce();
     expect(player.play).toHaveBeenCalledTimes(2);
   });
