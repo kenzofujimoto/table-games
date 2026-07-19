@@ -64,8 +64,10 @@ export interface TradeOffer {
   offer: ResourceCounts;
   request: ResourceCounts;
   targetPlayerIds: string[];
-  status: "open" | "accepted" | "rejected" | "expired";
+  status: "open" | "accepted" | "rejected" | "cancelled" | "expired";
   responderId: string | null;
+  rejectedPlayerIds?: string[];
+  createdTurn?: number;
 }
 
 export interface GameState {
@@ -128,6 +130,7 @@ export type GameCommand =
       targetPlayerIds: string[];
     })
   | (BaseCommand & { type: "respondTrade"; tradeId: string; response: "accept" | "reject" })
+  | (BaseCommand & { type: "cancelTrade"; tradeId: string })
   | (BaseCommand & { type: "endTurn" });
 
 interface EngineDependencies {
@@ -559,10 +562,21 @@ function proposeTrade(state: GameState, command: Extract<GameCommand, { type: "p
   assertActivePlayer(state, command.actorId);
   if (state.phase !== "actions") throw new Error("Player trading is not available now");
   if (state.trades.some((trade) => trade.status === "open")) throw new Error("Resolve the current trade first");
+  if (RESOURCE_TYPES.some((resource) => (
+    !Number.isInteger(command.offer[resource])
+    || command.offer[resource] < 0
+    || !Number.isInteger(command.request[resource])
+    || command.request[resource] < 0
+  ))) throw new Error("Trade quantities must be non-negative whole numbers");
   if (totalResources(command.offer) <= 0 || totalResources(command.request) <= 0) throw new Error("A trade needs offered and requested resources");
+  if (RESOURCE_TYPES.some((resource) => command.offer[resource] > 0 && command.request[resource] > 0)) {
+    throw new Error("A trade cannot offer and request the same resource");
+  }
   const player = state.players.find((candidate) => candidate.id === command.actorId)!;
   if (RESOURCE_TYPES.some((resource) => command.offer[resource] > player.resources[resource])) throw new Error("Insufficient offered resources");
-  const validTargets = command.targetPlayerIds.filter((id) => id !== command.actorId && state.players.some((player) => player.id === id));
+  const validTargets = [...new Set(command.targetPlayerIds)].filter((id) => (
+    id !== command.actorId && state.players.some((candidate) => candidate.id === id)
+  ));
   if (validTargets.length === 0) throw new Error("Select at least one valid trade recipient");
 
   const next = withCommandApplied({ ...state, trades: [...state.trades], events: [...state.events] }, command.id);
@@ -574,6 +588,8 @@ function proposeTrade(state: GameState, command: Extract<GameCommand, { type: "p
     targetPlayerIds: validTargets,
     status: "open",
     responderId: null,
+    rejectedPlayerIds: [],
+    createdTurn: state.turnNumber,
   });
   next.events.push(event(next, "tradeProposed", command.actorId, `${player.name} propôs uma troca.`));
   return next;
@@ -584,13 +600,25 @@ function respondTrade(state: GameState, command: Extract<GameCommand, { type: "r
   const trade = state.trades.find((candidate) => candidate.id === command.tradeId);
   if (!trade || trade.status !== "open") throw new Error("Trade is no longer available");
   if (!trade.targetPlayerIds.includes(command.actorId)) throw new Error("Player is not a recipient of this trade");
+  if ((trade.rejectedPlayerIds ?? []).includes(command.actorId)) throw new Error("This player already refused the trade");
   if (command.response === "reject") {
+    const rejectedPlayerIds = [...(trade.rejectedPlayerIds ?? []), command.actorId];
+    const allRejected = trade.targetPlayerIds.every((playerId) => rejectedPlayerIds.includes(playerId));
     const next = withCommandApplied({ ...state, trades: state.trades.map((candidate) => candidate.id === trade.id
-      ? { ...candidate, status: "rejected", responderId: command.actorId }
+      ? { ...candidate, status: allRejected ? "rejected" : "open", rejectedPlayerIds }
       : candidate), events: [...state.events] }, command.id);
-    next.events.push(event(next, "tradeCompleted", command.actorId, "A proposta de troca foi recusada."));
+    next.events.push(event(next, "tradeCompleted", command.actorId, allRejected
+      ? "Todos os exploradores recusaram a proposta de troca."
+      : `${state.players.find((player) => player.id === command.actorId)?.name ?? "Um explorador"} recusou a proposta de troca.`));
     return next;
   }
+
+  if (RESOURCE_TYPES.some((resource) => (
+    !Number.isInteger(trade.offer[resource])
+    || trade.offer[resource] < 0
+    || !Number.isInteger(trade.request[resource])
+    || trade.request[resource] < 0
+  ))) throw new Error("Trade quantities must be non-negative whole numbers");
 
   const proposer = state.players.find((player) => player.id === trade.proposerId)!;
   const responder = state.players.find((player) => player.id === command.actorId)!;
@@ -606,6 +634,22 @@ function respondTrade(state: GameState, command: Extract<GameCommand, { type: "r
     nextResponder.resources[resource] += trade.offer[resource] - trade.request[resource];
   }
   next.events.push(event(next, "tradeCompleted", command.actorId, `${nextProposer.name} e ${nextResponder.name} concluíram uma troca.`));
+  return next;
+}
+
+function cancelTrade(state: GameState, command: Extract<GameCommand, { type: "cancelTrade" }>): GameState {
+  if (state.phase !== "actions") throw new Error("Player trading is not available now");
+  const trade = state.trades.find((candidate) => candidate.id === command.tradeId);
+  if (!trade || trade.status !== "open") throw new Error("Trade is no longer available");
+  if (trade.proposerId !== command.actorId) throw new Error("Only the proposer can cancel this trade");
+  const next = withCommandApplied({
+    ...state,
+    trades: state.trades.map((candidate) => candidate.id === trade.id
+      ? { ...candidate, status: "cancelled" }
+      : candidate),
+    events: [...state.events],
+  }, command.id);
+  next.events.push(event(next, "tradeCompleted", command.actorId, "A proposta de troca foi cancelada."));
   return next;
 }
 
@@ -671,6 +715,9 @@ function playDevelopmentCard(
 function endTurn(state: GameState, command: Extract<GameCommand, { type: "endTurn" }>): GameState {
   assertActivePlayer(state, command.actorId);
   if (state.phase !== "actions") throw new Error("The turn cannot end now");
+  if (state.trades.some((trade) => trade.status === "open")) {
+    throw new Error("Resolve or cancel the open trade before ending the turn");
+  }
   const next = withCommandApplied({ ...state, events: [...state.events] }, command.id);
   next.events.push(event(next, "turnEnded", command.actorId, `${activePlayer(next).name} encerrou o turno.`));
   next.activePlayerIndex = (next.activePlayerIndex + 1) % next.players.length;
@@ -678,7 +725,6 @@ function endTurn(state: GameState, command: Extract<GameCommand, { type: "endTur
   next.phase = "roll";
   next.dice = null;
   next.usedDevelopmentCardThisTurn = false;
-  next.trades = next.trades.map((trade) => trade.status === "open" ? { ...trade, status: "expired" } : trade);
   return next;
 }
 
@@ -707,6 +753,7 @@ export function applyGameCommand(
     case "playDevelopmentCard": next = playDevelopmentCard(state, command); break;
     case "proposeTrade": next = proposeTrade(state, command); break;
     case "respondTrade": next = respondTrade(state, command); break;
+    case "cancelTrade": next = cancelTrade(state, command); break;
     case "endTurn": next = endTurn(state, command); break;
   }
   return refreshPhaseTiming(state, next, now);
@@ -745,6 +792,7 @@ export function applyExpiredPhase(
   const actorId = activePlayer(state).id;
   const id = `timeout:${state.phase}:${state.phaseDeadlineAt ?? "legacy"}:${state.setupStep}`;
   let command: GameCommand | null = null;
+  let commandState = state;
 
   if (state.phase === "setupSettlement") {
     const vertexId = automaticSettlement(state, actorId);
@@ -755,6 +803,13 @@ export function applyExpiredPhase(
   } else if (state.phase === "roll") {
     command = { id, type: "rollDice", actorId };
   } else if (state.phase === "actions") {
+    if (state.trades.some((trade) => trade.status === "open")) {
+      commandState = {
+        ...state,
+        trades: state.trades.map((trade) => trade.status === "open" ? { ...trade, status: "expired" } : trade),
+        events: [...state.events, event(state, "tradeCompleted", actorId, "O tempo da proposta de troca terminou.")],
+      };
+    }
     command = { id, type: "endTurn", actorId };
   } else if (state.phase === "discard") {
     const pending = Object.entries(state.pendingDiscards).sort(([first], [second]) => first.localeCompare(second))[0];
@@ -778,7 +833,7 @@ export function applyExpiredPhase(
   }
 
   return command
-    ? applyGameCommand(state, command, {
+    ? applyGameCommand(commandState, command, {
         ...(dependencies.random ? { random: dependencies.random } : {}),
         now: () => now,
       })

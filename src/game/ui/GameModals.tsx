@@ -6,6 +6,7 @@ import { bankTradeRatio, BUILD_COSTS, canAfford } from "@/game/domain/economy";
 import { validRoadEdges } from "@/game/domain/placement";
 import { RESOURCE_TYPES, emptyResources, type Resource, type ResourceCounts } from "@/game/domain/types";
 
+import { canAcceptTrade, pendingTradeForViewer } from "./player-view";
 import { RESOURCE_META } from "./resource-meta";
 
 interface ModalProps {
@@ -15,8 +16,8 @@ interface ModalProps {
   onClose: () => void;
 }
 
-function ModalFrame({ title, icon, children, onClose }: { title: string; icon: React.ReactNode; children: React.ReactNode; onClose: () => void }) {
-  return <div className="modal-backdrop" role="presentation"><section className="game-modal" role="dialog" aria-modal="true" aria-label={title}><header><span>{icon}</span><div><small>AÇÃO DA PARTIDA</small><h2>{title}</h2></div><button type="button" onClick={onClose} aria-label="Fechar"><X /></button></header>{children}</section></div>;
+function ModalFrame({ title, icon, children, onClose }: { title: string; icon: React.ReactNode; children: React.ReactNode; onClose?: (() => void) | undefined }) {
+  return <div className="modal-backdrop" role="presentation"><section className="game-modal" role="dialog" aria-modal="true" aria-label={title}><header><span>{icon}</span><div><small>AÇÃO DA PARTIDA</small><h2>{title}</h2></div>{onClose && <button type="button" onClick={onClose} aria-label="Fechar"><X /></button>}</header>{children}</section></div>;
 }
 
 export function TradeModal({ state, viewerId, dispatch, onClose }: ModalProps) {
@@ -25,8 +26,10 @@ export function TradeModal({ state, viewerId, dispatch, onClose }: ModalProps) {
   const [tab, setTab] = useState<"players" | "bank">("players");
   const [give, setGive] = useState<Resource>("wood");
   const [receive, setReceive] = useState<Resource>("ore");
-  const [targetId, setTargetId] = useState(state.players.find((player) => player.id !== viewer.id)?.id ?? "");
+  const [giveAmount, setGiveAmount] = useState(1);
+  const [receiveAmount, setReceiveAmount] = useState(1);
   const openTrade = state.trades.find((trade) => trade.status === "open");
+  const pendingTrade = pendingTradeForViewer(state, viewer.id);
   const ratio = bankTradeRatio(state.board, viewer.id, give);
 
   const submit = async () => {
@@ -35,20 +38,56 @@ export function TradeModal({ state, viewerId, dispatch, onClose }: ModalProps) {
       onClose();
       return;
     }
-    const offer = { ...emptyResources(), [give]: 1 };
-    const request = { ...emptyResources(), [receive]: 1 };
-    await dispatch({ id: crypto.randomUUID(), type: "proposeTrade", actorId: viewer.id, offer, request, targetPlayerIds: [targetId] });
+    const offer = { ...emptyResources(), [give]: giveAmount };
+    const request = { ...emptyResources(), [receive]: receiveAmount };
+    const targetPlayerIds = state.players.filter((player) => player.id !== viewer.id).map((player) => player.id);
+    await dispatch({ id: crypto.randomUUID(), type: "proposeTrade", actorId: viewer.id, offer, request, targetPlayerIds });
   };
 
-  return <ModalFrame title="Mesa de comércio" icon={<ArrowRightLeft />} onClose={onClose}>
-    <div className="modal-tabs"><button className={tab === "players" ? "is-active" : ""} type="button" onClick={() => setTab("players")}>Com jogadores</button><button className={tab === "bank" ? "is-active" : ""} type="button" onClick={() => setTab("bank")}>Com o banco</button></div>
-    {openTrade ? <div className="open-trade"><span className="status-pill">PROPOSTA ABERTA</span><p><strong>{state.players.find((player) => player.id === openTrade.proposerId)?.name}</strong> oferece {Object.entries(openTrade.offer).filter(([, amount]) => amount > 0).map(([resource, amount]) => `${amount} ${RESOURCE_META[resource as Resource].label}`).join(", ")} por {Object.entries(openTrade.request).filter(([, amount]) => amount > 0).map(([resource, amount]) => `${amount} ${RESOURCE_META[resource as Resource].label}`).join(", ")}.</p>
-      {openTrade.targetPlayerIds.includes(viewer.id) ? <div className="trade-responses"><div><span>Responder como {viewer.name}</span><button className="button button--secondary" type="button" onClick={() => void dispatch({ id: crypto.randomUUID(), type: "respondTrade", actorId: viewer.id, tradeId: openTrade.id, response: "accept" })}><Check /> Aceitar</button><button className="button button--ghost" type="button" onClick={() => void dispatch({ id: crypto.randomUUID(), type: "respondTrade", actorId: viewer.id, tradeId: openTrade.id, response: "reject" })}>Recusar</button></div></div> : <p className="modal-note">Aguardando a resposta dos exploradores convidados.</p>}
+  const respond = async (response: "accept" | "reject") => {
+    if (!openTrade) return;
+    const next = await dispatch({
+      id: crypto.randomUUID(),
+      type: "respondTrade",
+      actorId: viewer.id,
+      tradeId: openTrade.id,
+      response,
+    });
+    if (next) onClose();
+  };
+
+  const cancel = async () => {
+    if (!openTrade) return;
+    const next = await dispatch({
+      id: crypto.randomUUID(),
+      type: "cancelTrade",
+      actorId: viewer.id,
+      tradeId: openTrade.id,
+    });
+    if (next) onClose();
+  };
+
+  const acceptance = openTrade ? canAcceptTrade(state, openTrade, viewer.id) : null;
+  const missingDescription = acceptance
+    ? RESOURCE_TYPES.filter((resource) => (acceptance.missing[resource] ?? 0) > 0)
+      .map((resource) => `${acceptance.missing[resource]} ${RESOURCE_META[resource].label}`)
+      .join(", ")
+    : "";
+  const isValidPlayerBundle = Number.isInteger(giveAmount)
+    && giveAmount > 0
+    && Number.isInteger(receiveAmount)
+    && receiveAmount > 0;
+  const title = pendingTrade ? "Solicitação de troca" : "Mesa de comércio";
+
+  return <ModalFrame title={title} icon={<ArrowRightLeft />} onClose={pendingTrade ? undefined : onClose}>
+    {!openTrade && <div className="modal-tabs"><button className={tab === "players" ? "is-active" : ""} type="button" onClick={() => setTab("players")}>Com jogadores</button><button className={tab === "bank" ? "is-active" : ""} type="button" onClick={() => setTab("bank")}>Com o banco</button></div>}
+    {openTrade ? <div className="open-trade"><span className="status-pill">PROPOSTA ABERTA</span><p>{state.players.find((player) => player.id === openTrade.proposerId)?.name} oferece <strong>{Object.entries(openTrade.offer).filter(([, amount]) => amount > 0).map(([resource, amount]) => `${amount} ${RESOURCE_META[resource as Resource].label}`).join(", ")}</strong> por <strong>{Object.entries(openTrade.request).filter(([, amount]) => amount > 0).map(([resource, amount]) => `${amount} ${RESOURCE_META[resource as Resource].label}`).join(", ")}</strong>.</p>
+      {pendingTrade ? <div className="trade-responses"><div><span>Responder como {viewer.name}</span>{!acceptance?.canAccept && <p className="modal-note">Você precisa de {missingDescription} para aceitar.</p>}<button className="button button--secondary" type="button" disabled={!acceptance?.canAccept} onClick={() => void respond("accept")}><Check /> Aceitar</button><button className="button button--ghost" type="button" onClick={() => void respond("reject")}>Recusar</button></div></div> : openTrade.proposerId === viewer.id ? <div className="trade-responses"><p className="modal-note">Aguardando os outros exploradores. O turno só pode terminar após esta proposta ser resolvida.</p><button className="button button--ghost button--full" type="button" onClick={() => void cancel()}>Cancelar proposta</button></div> : <p className="modal-note">Você já recusou esta proposta. Aguardando os outros exploradores.</p>}
     </div> : <>
-      <div className="trade-builder"><label><span>Você oferece</span><select className="text-input" value={give} onChange={(event) => setGive(event.target.value as Resource)}>{RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{RESOURCE_META[resource].label} ({viewer.resources[resource]})</option>)}</select></label><ArrowRightLeft /><label><span>Você recebe</span><select className="text-input" value={receive} onChange={(event) => setReceive(event.target.value as Resource)}>{RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{RESOURCE_META[resource].label}</option>)}</select></label></div>
-      {tab === "players" && <label className="field"><span>Destinatário</span><select className="text-input" value={targetId} onChange={(event) => setTargetId(event.target.value)}>{state.players.filter((player) => player.id !== viewer.id).map((player) => <option value={player.id} key={player.id}>{player.name}</option>)}</select></label>}
+      <div className="trade-builder"><label><span>Você oferece</span><select className="text-input" value={give} onChange={(event) => setGive(event.target.value as Resource)}>{RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{RESOURCE_META[resource].label} ({viewer.resources[resource]})</option>)}</select>{tab === "players" && <input className="text-input" type="number" min="1" max="19" aria-label="Quantidade oferecida" value={giveAmount} onChange={(event) => setGiveAmount(Number(event.target.value))} />}</label><ArrowRightLeft /><label><span>Você recebe</span><select className="text-input" value={receive} onChange={(event) => setReceive(event.target.value as Resource)}>{RESOURCE_TYPES.map((resource) => <option value={resource} key={resource}>{RESOURCE_META[resource].label}</option>)}</select>{tab === "players" && <input className="text-input" type="number" min="1" max="19" aria-label="Quantidade solicitada" value={receiveAmount} onChange={(event) => setReceiveAmount(Number(event.target.value))} />}</label></div>
+      {tab === "players" && <p className="modal-note">A solicitação será enviada a todos os outros exploradores. O primeiro aceite conclui a troca.</p>}
       {tab === "bank" && <p className="modal-note">Taxa atual para {RESOURCE_META[give].label.toLowerCase()}: {ratio}:1.</p>}
-      <button className="button button--primary button--full" type="button" disabled={active.id !== viewer.id || give === receive || viewer.resources[give] < (tab === "bank" ? ratio : 1)} onClick={() => void submit()}>{tab === "bank" ? "Negociar com o banco" : "Enviar proposta"}</button>
+      <button className="button button--primary button--full" type="button" disabled={active.id !== viewer.id || give === receive || !isValidPlayerBundle || viewer.resources[give] < (tab === "bank" ? ratio : giveAmount)} onClick={() => void submit()}>{tab === "bank" ? "Negociar com o banco" : "Enviar proposta"}</button>
     </>}
   </ModalFrame>;
 }

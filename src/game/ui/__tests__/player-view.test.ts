@@ -34,7 +34,7 @@ describe("player-specific game view", () => {
       activePlayerIndex: 0,
       phase: "actions",
       pendingDiscards: {},
-    } as GameState;
+    } as unknown as GameState;
     expect(canPlayerInteract(state, "p1")).toBe(true);
     expect(canPlayerInteract(state, "p2")).toBe(false);
     expect(canPlayerInteract({ ...state, phase: "discard", pendingDiscards: { p2: 3 } }, "p2")).toBe(true);
@@ -56,7 +56,7 @@ describe("player-specific game view", () => {
         responderId: null,
         rejectedPlayerIds: [],
       }],
-    } as GameState;
+    } as unknown as GameState;
 
     expect(canOpenTrade(state, "p1")).toBe(true);
     expect(canOpenTrade(state, "p2")).toBe(true);
@@ -85,7 +85,7 @@ describe("player-specific game view", () => {
       phase: "actions",
       pendingDiscards: {},
       trades: [trade],
-    } as GameState;
+    } as unknown as GameState;
 
     expect(pendingTradeForViewer(state, "p2")?.id).toBe("trade-2");
     expect(pendingTradeForViewer(state, "p3")).toBeNull();
