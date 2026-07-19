@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clientRealtimeMessageSchema, serverRealtimeMessageSchema } from "../protocol";
+import { clientRealtimeMessageSchema, gameApiRequestSchema, serverRealtimeMessageSchema } from "../protocol";
 
 describe("online multiplayer protocol", () => {
   it("accepts authenticated subscriptions, commands, chat and heartbeats", () => {
@@ -71,5 +71,13 @@ describe("online multiplayer protocol", () => {
       roomCode: "ABC234",
       players,
     })).toMatchObject({ type: "presence", players });
+  });
+
+  it("accepts an authenticated idempotent timer tick", () => {
+    expect(gameApiRequestSchema.parse({
+      action: "tick",
+      gameId: "game-1",
+      expectedVersion: 4,
+    })).toEqual({ action: "tick", gameId: "game-1", expectedVersion: 4 });
   });
 });
