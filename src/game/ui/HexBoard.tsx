@@ -96,6 +96,9 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
         <defs>
           <filter id="tile-shadow"><feDropShadow dx="0" dy="5" stdDeviation="5" floodOpacity=".38" /></filter>
           <linearGradient id="ocean" x1="0" y1="0" x2="1" y2="1"><stop stopColor="#173c43" /><stop offset="1" stopColor="#0a262d" /></linearGradient>
+          {Object.keys(terrainLabel).map((terrain) => <pattern key={terrain} id={`terrain-${terrain}`} patternUnits="userSpaceOnUse" width="132" height="132">
+            <image href={`/textures/${terrain}.webp`} x="0" y="0" width="132" height="132" preserveAspectRatio="xMidYMid slice" />
+          </pattern>)}
         </defs>
         <rect x="-500" y="-400" width="1000" height="800" rx="36" fill="url(#ocean)" />
         <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`}>

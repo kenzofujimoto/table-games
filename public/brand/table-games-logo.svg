@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 530 128" role="img" aria-labelledby="title description">
+  <title id="title">Table Games</title>
+  <desc id="description">Uma mesa vista de cima com quatro jogadores reunidos.</desc>
+  <g transform="translate(0)">
+    <g fill="#e6bd67">
+      <circle cx="64" cy="10" r="7"/><path d="m54 28 4-14h12l4 14z"/>
+      <circle cx="118" cy="64" r="7"/><path d="m100 54 14 4v12l-14 4z"/>
+      <circle cx="64" cy="118" r="7"/><path d="m54 100 4 14h12l4-14z"/>
+      <circle cx="10" cy="64" r="7"/><path d="m28 54-14 4v12l14 4z"/>
+    </g>
+    <path d="M36 23h56l13 13v56l-13 13H36L23 92V36z" fill="#0b3029" stroke="#f4d98f" stroke-width="5"/>
+    <path d="M43 34h42l9 9v42l-9 9H43l-9-9V43z" fill="#d9a947"/>
+    <path d="M64 42c4 12 10 18 22 22-12 4-18 10-22 22-4-12-10-18-22-22 12-4 18-10 22-22Z" fill="#f8edd1" stroke="#0b3029" stroke-width="5"/>
+  </g>
+  <text x="152" y="73" fill="#0b3029" font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="800" letter-spacing="3">TABLE GAMES</text>
+  <text x="155" y="96" fill="#916d2f" font-family="Arial, Helvetica, sans-serif" font-size="13" font-weight="700" letter-spacing="7">JOGUE JUNTO</text>
+</svg>
