@@ -34,4 +34,28 @@ describe("HexBoard", () => {
     expect(screen.getByLabelText("Porto de trigo 2 por 1")).toBeInTheDocument();
     expect(screen.getByLabelText("Porto de minério 2 por 1")).toBeInTheDocument();
   });
+
+  it("uses original image textures for every terrain", () => {
+    const state = createGame({
+      id: "game-textures",
+      roomCode: "TERRA2",
+      seed: "visible-textures",
+      players: [makePlayer("p1"), makePlayer("p2")],
+      targetScore: 10,
+    });
+
+    const { container } = render(<HexBoard
+      state={state}
+      validVertexIds={new Set()}
+      validEdgeIds={new Set()}
+      selectableTiles={false}
+      onVertex={vi.fn()}
+      onEdge={vi.fn()}
+      onTile={vi.fn()}
+    />);
+
+    for (const terrain of ["forest", "hills", "pasture", "fields", "mountains", "desert"]) {
+      expect(container.querySelector(`pattern#terrain-${terrain} image[href="/textures/${terrain}.webp"]`)).not.toBeNull();
+    }
+  });
 });
