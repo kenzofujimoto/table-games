@@ -71,6 +71,17 @@ describe("Auren application shell", () => {
     expect(screen.getByRole("heading", { name: /Maior rota/i })).toBeInTheDocument();
   });
 
+  it("returns to the top when navigating between application pages", async () => {
+    const scrollTo = vi.spyOn(window, "scrollTo").mockImplementation(() => undefined);
+    const user = userEvent.setup();
+    render(<App />);
+    scrollTo.mockClear();
+
+    await user.click(screen.getByRole("link", { name: /Regras/i }));
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, left: 0, behavior: "auto" });
+  });
+
   it("copies an invite URL that routes guests through room registration", async () => {
     const room = await repository.createRoom({ name: "Mesa privada", host, settings });
     useAppStore.setState({ profile: host, room });
