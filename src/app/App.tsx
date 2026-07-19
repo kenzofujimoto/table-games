@@ -1,4 +1,5 @@
-import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
+import { useLayoutEffect, useRef } from "react";
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router-dom";
 
 import { ExperienceController } from "@/accessibility/ExperienceController";
 import { CreateRoomPage } from "@/pages/CreateRoomPage";
@@ -11,10 +12,24 @@ import { ProfilePage } from "@/pages/ProfilePage";
 import { RulesPage } from "@/pages/RulesPage";
 import { SettingsPage } from "@/pages/SettingsPage";
 
+function RouteScrollReset() {
+  const { pathname } = useLocation();
+  const previousPathname = useRef(pathname);
+
+  useLayoutEffect(() => {
+    if (previousPathname.current === pathname) return;
+    previousPathname.current = pathname;
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, [pathname]);
+
+  return null;
+}
+
 export function App() {
   return (
     <BrowserRouter>
       <ExperienceController />
+      <RouteScrollReset />
       <Routes>
         <Route path="/" element={<LandingPage />} />
         <Route path="/perfil" element={<ProfilePage />} />
