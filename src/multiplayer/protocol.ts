@@ -79,11 +79,18 @@ export const roomApiRequestSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start"), roomCode: roomCodeSchema }).strict(),
 ]);
 
-export const gameApiRequestSchema = z.object({
-  gameId: z.string().min(1).max(100),
-  expectedVersion: z.number().int().nonnegative(),
-  command: clientGameCommandSchema,
-}).strict();
+export const gameApiRequestSchema = z.union([
+  z.object({
+    gameId: z.string().min(1).max(100),
+    expectedVersion: z.number().int().nonnegative(),
+    command: clientGameCommandSchema,
+  }).strict(),
+  z.object({
+    action: z.literal("tick"),
+    gameId: z.string().min(1).max(100),
+    expectedVersion: z.number().int().nonnegative(),
+  }).strict(),
+]);
 
 export const clientRealtimeMessageSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("subscribe"), roomCode: roomCodeSchema, sessionToken: sessionTokenSchema }).strict(),

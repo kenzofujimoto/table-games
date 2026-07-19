@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
 import {
+  applyExpiredPhase,
   applyGameCommand,
   createGame,
   type GameCommand,
@@ -27,12 +28,13 @@ import {
   type PlayerPresence,
   type PlayerProfile,
 } from "../src/multiplayer/types.js";
-import type { OnlineStore, StoredRoomRecord } from "./online-store.js";
+import type { OnlineStore, PresenceLease, StoredRoomRecord } from "./online-store.js";
 
 const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const MAX_UPDATE_ATTEMPTS = 5;
 const PRESENCE_LEASE_MS = 45_000;
 const RECONNECT_GRACE_MS = 60_000;
+const MAX_DISCONNECT_GRACE_MS = 180_000;
 
 interface ServiceDependencies {
   now?: () => Date;
@@ -174,6 +176,9 @@ export class GameSessionService {
       const next: GameState = {
         ...state,
         version: state.version + 1,
+        phaseDeadlineAt: control === "autopilot" && state.players[state.activePlayerIndex]?.id === playerId
+          ? new Date(this.now().getTime() + 1_000).toISOString()
+          : state.phaseDeadlineAt,
         players: state.players.map((candidate) => candidate.id === playerId
           ? {
               ...candidate,
@@ -182,6 +187,40 @@ export class GameSessionService {
               connectionStatus: control === "human" ? "online" : "autopilot",
             }
           : candidate),
+      };
+      if (await this.store.compareAndSetGame(state.id, state.version, next)) {
+        await this.store.publish(room.code, {
+          type: "gameUpdated",
+          roomCode: room.code,
+          gameId: state.id,
+          version: next.version,
+        });
+        return;
+      }
+    }
+    throw new Error("Game update conflict: try again");
+  }
+
+  private async resumeGameAfterEveryoneWasOffline(room: GameRoom, leases: PresenceLease[]): Promise<void> {
+    if (room.status !== "playing" || !room.gameId || leases.length === 0) return;
+    const now = this.now().getTime();
+    if (leases.some((lease) => Date.parse(lease.expiresAt) > now)) return;
+    const offlineAtMs = Math.max(...leases.map((lease) => Date.parse(lease.expiresAt)));
+    if (!Number.isFinite(offlineAtMs) || offlineAtMs >= now) return;
+    const offlineAt = new Date(offlineAtMs).toISOString();
+    const pausedMilliseconds = now - offlineAtMs;
+
+    for (let attempt = 0; attempt < MAX_UPDATE_ATTEMPTS; attempt += 1) {
+      const state = await this.store.getGame(room.gameId);
+      if (!state || state.lastAllOfflineAt === offlineAt) return;
+      const next: GameState = {
+        ...state,
+        version: state.version + 1,
+        phaseStartedAt: new Date(Date.parse(state.phaseStartedAt) + pausedMilliseconds).toISOString(),
+        phaseDeadlineAt: state.phaseDeadlineAt === null
+          ? null
+          : new Date(Date.parse(state.phaseDeadlineAt) + pausedMilliseconds).toISOString(),
+        lastAllOfflineAt: offlineAt,
       };
       if (await this.store.compareAndSetGame(state.id, state.version, next)) {
         await this.store.publish(room.code, {
@@ -307,6 +346,8 @@ export class GameSessionService {
     const normalized = normalizeCode(code);
     const authenticated = await this.authenticate(normalized, token);
     let room = authenticated.record.room;
+    const previousLeases = await this.store.getPresence(normalized);
+    await this.resumeGameAfterEveryoneWasOffline(room, previousLeases);
     const player = room.players.find((candidate) => candidate.profile.id === authenticated.playerId)!;
     if (player.control === "autopilot") {
       const changed = await this.updateRoom(normalized, (current) => ({
@@ -443,6 +484,7 @@ export class GameSessionService {
       players: current.room.players.map((player) => playerFromProfile(player.profile)),
       targetScore: current.room.settings.targetScore,
       turnSeconds: current.room.settings.turnSeconds,
+      startedAt: this.now().toISOString(),
     });
     state.config.confirmEndTurn = current.room.settings.confirmEndTurn;
     state.config.chatEnabled = current.room.settings.chatEnabled;
@@ -494,7 +536,7 @@ export class GameSessionService {
     const { playerId } = await this.authenticate(state.roomCode, token);
     if (state.version !== expectedVersion) throw new Error("Version conflict: reload the latest game state");
     const authoritativeCommand = { ...command, actorId: playerId } as GameCommand;
-    const next = applyGameCommand(state, authoritativeCommand);
+    const next = applyGameCommand(state, authoritativeCommand, { now: this.now });
     if (!await this.store.compareAndSetGame(gameId, expectedVersion, next)) {
       throw new Error("Version conflict: reload the latest game state");
     }
@@ -505,6 +547,71 @@ export class GameSessionService {
       version: next.version,
     });
     return sanitizeGameState(next, playerId);
+  }
+
+  async advanceExpiredGame(
+    gameId: string,
+    token: string,
+    expectedVersion: number,
+  ): Promise<GameState> {
+    const state = await this.store.getGame(gameId);
+    if (!state) throw new Error("Game was not found");
+    const authenticated = await this.authenticate(state.roomCode, token);
+    if (state.version !== expectedVersion) throw new Error("Version conflict: reload the latest game state");
+    const now = this.now();
+    const deadline = state.phaseDeadlineAt ? Date.parse(state.phaseDeadlineAt) : Number.POSITIVE_INFINITY;
+    if (now.getTime() < deadline || state.phase === "finished") return this.getGameView(gameId, token);
+
+    const pendingDiscardId = state.phase === "discard"
+      ? Object.keys(state.pendingDiscards).sort()[0]
+      : undefined;
+    const timedPlayerId = pendingDiscardId ?? state.players[state.activePlayerIndex]!.id;
+    const presence = await this.playerPresence(authenticated.record.room);
+    const timedPresence = presence.find((player) => player.playerId === timedPlayerId);
+    const graceKey = state.phase === "setupSettlement" || state.phase === "setupRoad"
+      ? `${timedPlayerId}:setup:${state.setupStep}`
+      : `${timedPlayerId}:turn:${state.turnNumber}`;
+    const graceUsed = state.disconnectGraceUsedMs[timedPlayerId] ?? 0;
+    if (
+      timedPresence?.status === "reconnecting"
+      && !state.disconnectGraceKeys.includes(graceKey)
+      && graceUsed < MAX_DISCONNECT_GRACE_MS
+    ) {
+      const grant = Math.min(RECONNECT_GRACE_MS, MAX_DISCONNECT_GRACE_MS - graceUsed);
+      const next: GameState = {
+        ...state,
+        version: state.version + 1,
+        phaseDeadlineAt: new Date(now.getTime() + grant).toISOString(),
+        disconnectGraceUsedMs: {
+          ...state.disconnectGraceUsedMs,
+          [timedPlayerId]: graceUsed + grant,
+        },
+        disconnectGraceKeys: [...state.disconnectGraceKeys, graceKey],
+      };
+      if (!await this.store.compareAndSetGame(gameId, state.version, next)) {
+        throw new Error("Version conflict: reload the latest game state");
+      }
+      await this.store.publish(state.roomCode, {
+        type: "gameUpdated",
+        roomCode: state.roomCode,
+        gameId,
+        version: next.version,
+      });
+      return this.getGameView(gameId, token);
+    }
+
+    const next = applyExpiredPhase(state, now);
+    if (next === state) return this.getGameView(gameId, token);
+    if (!await this.store.compareAndSetGame(gameId, state.version, next)) {
+      throw new Error("Version conflict: reload the latest game state");
+    }
+    await this.store.publish(state.roomCode, {
+      type: "gameUpdated",
+      roomCode: state.roomCode,
+      gameId,
+      version: next.version,
+    });
+    return this.getGameView(gameId, token);
   }
 
   async sendChat(code: string, token: string, clientMessageId: string, rawMessage: string): Promise<ChatMessage> {

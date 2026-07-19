@@ -101,6 +101,7 @@ export interface GameRepository {
   saveGame(state: GameState): Promise<void>;
   loadGame(gameId: string): Promise<GameState | null>;
   executeCommand(state: GameState, command: GameCommand): Promise<GameState>;
+  advanceExpiredGame(state: GameState): Promise<GameState>;
   sendChat(roomCode: string, author: PlayerProfile, message: string): Promise<void>;
   subscribe(roomCode: string, listener: (event: RepositoryEvent) => void): () => void;
 }

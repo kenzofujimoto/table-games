@@ -1,5 +1,5 @@
 import { ArrowRightLeft, BookOpenCheck, Building2, ChevronRight, Clock3, Crown, Dices, Flag, Home, LogOut, MapPin, Radio, Route, Settings, ShieldAlert, Sparkles, Trophy, Users, X } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 
 import { repository, useAppStore } from "@/app/store";
@@ -10,6 +10,7 @@ import { RESOURCE_TYPES } from "@/game/domain/types";
 import { DevelopmentModal, DiscardModal, TradeModal } from "@/game/ui/GameModals";
 import { HexBoard } from "@/game/ui/HexBoard";
 import { ResourceToken } from "@/game/ui/ResourceToken";
+import { formatCountdown, remainingMilliseconds } from "@/game/ui/countdown";
 import { canOpenTrade, canPlayerInteract, resourceCardTotal } from "@/game/ui/player-view";
 import { GameLogo } from "@/shared/components/GameLogo";
 
@@ -37,8 +38,15 @@ export function GamePage() {
   const [loading, setLoading] = useState(storedGame?.id !== gameId);
   const [buildMode, setBuildMode] = useState<BuildMode>(null);
   const [modal, setModal] = useState<"trade" | "development" | null>(null);
+  const [clockNow, setClockNow] = useState(() => Date.now());
+  const timerTicking = useRef(false);
   const navigate = useNavigate();
   const game = storedGame?.id === gameId ? storedGame : null;
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setClockNow(Date.now()), 250);
+    return () => window.clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -73,6 +81,21 @@ export function GamePage() {
     if (game.phase === "actions" && buildMode === "city") game.board.vertices.filter((vertex) => vertex.building?.playerId === viewerId && vertex.building.kind === "settlement").forEach((vertex) => validVertexIds.add(vertex.id));
     return { validVertexIds, validEdgeIds, selectableTiles: game.phase === "robber" };
   }, [buildMode, game, profile?.id]);
+
+  const remaining = remainingMilliseconds(game?.phaseDeadlineAt, new Date(clockNow));
+
+  useEffect(() => {
+    if (!game || game.phase === "finished" || remaining > 0 || timerTicking.current) return;
+    timerTicking.current = true;
+    void repository.advanceExpiredGame(game).then((next) => {
+      setGame(next);
+    }).catch(async () => {
+      const latest = await repository.loadGame(game.id);
+      if (latest) setGame(latest);
+    }).finally(() => {
+      timerTicking.current = false;
+    });
+  }, [game, remaining, setGame]);
 
   if (!profile) return <Navigate to={`/perfil?next=/jogo/${gameId}`} replace />;
   if (loading) return <main className="game-loading"><div className="loading-orbit" /><p>Reconectando à expedição…</p></main>;
@@ -110,7 +133,7 @@ export function GamePage() {
 
   return (
     <main className="game-screen">
-      <header className="game-topbar"><GameLogo compact /><div className="turn-banner"><span className={`avatar-token avatar-token--${actor.color}`}>{actor.name[0]}</span><div><small>TURNO {game.turnNumber}</small><strong>Vez de {actor.name}</strong></div><span className="phase-pill"><Radio /> {phaseLabels[game.phase]}</span></div><div className="game-top-actions"><span><Clock3 /> {Math.floor(game.config.turnSeconds / 60).toString().padStart(2, "0")}:00</span><Link to="/configuracoes" aria-label="Configurações"><Settings /></Link><button type="button" onClick={() => void abandon()} aria-label="Abandonar partida"><LogOut /></button></div></header>
+      <header className="game-topbar"><GameLogo compact /><div className="turn-banner"><span className={`avatar-token avatar-token--${actor.color}`}>{actor.name[0]}</span><div><small>TURNO {game.turnNumber}</small><strong>Vez de {actor.name}</strong></div><span className="phase-pill"><Radio /> {phaseLabels[game.phase]}</span></div><div className="game-top-actions"><span className={remaining <= 10_000 ? "is-urgent" : ""}><Clock3 /> {formatCountdown(remaining)}</span><Link to="/configuracoes" aria-label="Configurações"><Settings /></Link><button type="button" onClick={() => void abandon()} aria-label="Abandonar partida"><LogOut /></button></div></header>
 
       <aside className="players-rail"><div className="rail-title"><Users /> Exploradores</div>{game.players.map((player, index) => {
         const score = calculateScore(player, game.board, game.achievements);

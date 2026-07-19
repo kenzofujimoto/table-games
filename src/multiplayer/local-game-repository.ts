@@ -1,4 +1,4 @@
-import { applyGameCommand, type GameCommand, type GameState } from "@/game/application/game-engine";
+import { applyExpiredPhase, applyGameCommand, type GameCommand, type GameState } from "@/game/application/game-engine";
 import {
   AUREN_GAME_ID,
   getGameManifest,
@@ -254,6 +254,12 @@ export class LocalGameRepository implements GameRepository {
   async executeCommand(state: GameState, command: GameCommand): Promise<GameState> {
     const next = applyGameCommand(state, command);
     await this.saveGame(next);
+    return next;
+  }
+
+  async advanceExpiredGame(state: GameState): Promise<GameState> {
+    const next = applyExpiredPhase(state, new Date());
+    if (next !== state) await this.saveGame(next);
     return next;
   }
 

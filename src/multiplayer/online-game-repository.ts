@@ -205,6 +205,16 @@ export class OnlineGameRepository implements GameRepository {
     return parseGameState(value);
   }
 
+  async advanceExpiredGame(state: GameState): Promise<GameState> {
+    const session = this.requireSession(state.roomCode);
+    const value = await this.request("/api/game", {
+      method: "POST",
+      token: session.sessionToken,
+      body: { action: "tick", gameId: state.id, expectedVersion: state.version },
+    });
+    return parseGameState(value);
+  }
+
   async sendChat(roomCode: string, author: PlayerProfile, message: string): Promise<void> {
     const session = this.requireSession(roomCode, author.id);
     this.realtime.sendChat(roomCode.toUpperCase(), session.sessionToken, crypto.randomUUID(), message.trim());

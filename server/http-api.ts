@@ -108,6 +108,12 @@ export async function handleGameApi(request: ApiRequest, service: GameSessionSer
     }
     if (request.method !== "POST") throw new ApiFault(405, "METHOD_NOT_ALLOWED", "Method not allowed");
     const payload = gameApiRequestSchema.parse(request.body);
+    if ("action" in payload) {
+      return {
+        status: 200,
+        body: await service.advanceExpiredGame(payload.gameId, token, payload.expectedVersion),
+      };
+    }
     const state = await service.executeCommand(payload.gameId, token, payload.command, payload.expectedVersion);
     return { status: 200, body: state };
   } catch (error) {
