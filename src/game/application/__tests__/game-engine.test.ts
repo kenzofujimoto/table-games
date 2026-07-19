@@ -48,6 +48,19 @@ function completeSetup() {
 }
 
 describe("initial placement", () => {
+  it("supports a complete two-player setup", () => {
+    const state = createGame({
+      id: "game-two-players",
+      roomCode: "DUO234",
+      seed: "two-player-seed",
+      players: players.slice(0, 2),
+      targetScore: 10,
+    });
+
+    expect(state.players).toHaveLength(2);
+    expect(state.phase).toBe("setupSettlement");
+  });
+
   it("uses normal then reverse player order", () => {
     const { state, order } = completeSetup();
     expect(order).toEqual(["p1", "p2", "p3", "p3", "p2", "p1"]);
