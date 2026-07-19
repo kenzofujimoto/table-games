@@ -87,6 +87,23 @@ class MemorySnapshotArchive implements SnapshotArchive {
 }
 
 describe("durable online store", () => {
+  it("keeps presence leases ephemeral instead of archiving every heartbeat", async () => {
+    const archive = new MemorySnapshotArchive();
+    const store = new DurableOnlineStore(new InMemoryOnlineStore(), archive);
+
+    await store.touchPresence({
+      roomCode: "ABC234",
+      playerId: "p1",
+      connectionId: "connection-1",
+      lastSeenAt: "2026-07-18T12:00:00.000Z",
+      expiresAt: "2026-07-18T12:00:45.000Z",
+    });
+
+    expect(await store.getPresence("ABC234")).toHaveLength(1);
+    expect(archive.rooms).toHaveLength(0);
+    expect(archive.games).toHaveLength(0);
+  });
+
   it("archives every successful room and game revision", async () => {
     const archive = new MemorySnapshotArchive();
     const store = new DurableOnlineStore(new InMemoryOnlineStore(), archive);

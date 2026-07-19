@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { clientRealtimeMessageSchema } from "../protocol";
+import { clientRealtimeMessageSchema, serverRealtimeMessageSchema } from "../protocol";
 
 describe("online multiplayer protocol", () => {
   it("accepts authenticated subscriptions, commands, chat and heartbeats", () => {
@@ -57,5 +57,19 @@ describe("online multiplayer protocol", () => {
     expect(spoofedCommand.success).toBe(false);
     expect(oversizedChat.success).toBe(false);
     expect(negativeVersion.success).toBe(false);
+  });
+
+  it("carries scalable presence states instead of a four-player id list", () => {
+    const players = Array.from({ length: 12 }, (_, index) => ({
+      playerId: `player-${index}`,
+      status: index === 0 ? "reconnecting" as const : "online" as const,
+      lastSeenAt: "2026-07-18T12:00:00.000Z",
+    }));
+
+    expect(serverRealtimeMessageSchema.parse({
+      type: "presence",
+      roomCode: "ABC234",
+      players,
+    })).toMatchObject({ type: "presence", players });
   });
 });
