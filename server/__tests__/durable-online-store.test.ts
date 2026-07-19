@@ -40,6 +40,7 @@ const players: Player[] = ["p1", "p2", "p3"].map((id, index) => ({
 function roomRecord(revision = 0): StoredRoomRecord {
   const room: GameRoom = {
     id: "room-1",
+    gameKey: "auren",
     code: "ABC234",
     name: "Mesa",
     hostId: "p1",

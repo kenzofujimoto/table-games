@@ -166,9 +166,9 @@ describe("authoritative commands", () => {
 });
 
 describe("construction, purchases and defensive validation", () => {
-  it("requires three or four players", () => {
-    expect(() => createGame({ id: "short", roomCode: "SHORT", seed: "short", players: players.slice(0, 2), targetScore: 10 })).toThrow(
-      "A game requires three or four players",
+  it("requires two through four players", () => {
+    expect(() => createGame({ id: "short", roomCode: "SHORT", seed: "short", players: players.slice(0, 1), targetScore: 10 })).toThrow(
+      "A game requires two to four players",
     );
   });
 

@@ -229,8 +229,8 @@ function evaluateVictory(state: GameState, actorId: string): void {
 }
 
 export function createGame(input: CreateGameInput): GameState {
-  if (input.players.length < 3 || input.players.length > 4) {
-    throw new Error("A game requires three or four players");
+  if (input.players.length < 2 || input.players.length > 4) {
+    throw new Error("A game requires two to four players");
   }
 
   const preparedPlayers = clonePlayers(input.players).map((player) => ({

@@ -5,6 +5,7 @@ import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { repository, useAppStore } from "@/app/store";
 import { createGame } from "@/game/application/game-engine";
 import { emptyResources, type Player } from "@/game/domain/types";
+import { getGameManifest } from "@/games/game-registry";
 import type { ChatMessage } from "@/multiplayer/protocol";
 import type { GameRoom, PlayerProfile } from "@/multiplayer/types";
 import { AppShell } from "@/shared/components/AppShell";
@@ -80,8 +81,12 @@ export function LobbyPage() {
 
   const me = room.players.find((player) => player.profile.id === profile.id);
   const isHost = room.hostId === profile.id;
-  const missingPlayers = room.settings.maxPlayers - room.players.length;
-  const allReady = room.players.length === room.settings.maxPlayers && room.players.every((player) => player.ready);
+  const manifest = getGameManifest(room.gameKey);
+  const fillTarget = room.settings.maxPlayers ?? manifest.minPlayers;
+  const missingPlayers = Math.max(0, fillTarget - room.players.length);
+  const hasValidCount = room.players.length >= manifest.minPlayers
+    && (room.settings.maxPlayers === null || room.players.length === room.settings.maxPlayers);
+  const allReady = hasValidCount && room.players.every((player) => player.ready);
 
   const refresh = (next: GameRoom) => { updateRoom(next); setRoom(next); };
   const toggleReady = async () => {
@@ -94,7 +99,7 @@ export function LobbyPage() {
     try {
       let next = room;
       for (const explorer of localExplorers) {
-        if (next.players.length >= next.settings.maxPlayers) break;
+        if (next.players.length >= (next.settings.maxPlayers ?? manifest.minPlayers)) break;
         if (!next.players.some((player) => player.profile.id === explorer.id)) {
           next = await repository.joinRoom(next.code, explorer);
           next = await repository.setReady(next.code, explorer.id, true);
@@ -144,7 +149,7 @@ export function LobbyPage() {
         <header className="lobby-heading"><div><div className="eyebrow"><Radio size={14} /> SALA PRIVADA · {repository.kind === "online" ? "ONLINE" : "MODO LOCAL"}</div><h1>{room.name}</h1><p>Todos devem estar prontos antes da partida começar.</p></div><button className="button button--ghost" type="button" onClick={() => void navigate("/")}><LogOut /> Sair</button></header>
         <div className="lobby-layout">
           <section className="lobby-panel">
-            <div className="panel-title"><span><Users /> Exploradores</span><small>{room.players.length}/{room.settings.maxPlayers}</small></div>
+            <div className="panel-title"><span><Users /> Exploradores</span><small>{room.players.length}/{room.settings.maxPlayers ?? "∞"}</small></div>
             <div className="player-list">
               {room.players.map((player) => (
                 <article className="lobby-player" key={player.profile.id}>
@@ -154,11 +159,11 @@ export function LobbyPage() {
                   <span className={`ready-badge ${player.ready ? "is-ready" : ""}`}>{player.ready ? <><Check /> Pronto</> : "Aguardando"}</span>
                 </article>
               ))}
-              {Array.from({ length: room.settings.maxPlayers - room.players.length }, (_, index) => <div className="empty-seat" key={index}><UserPlus /><span>Assento disponível</span></div>)}
+              {Array.from({ length: missingPlayers }, (_, index) => <div className="empty-seat" key={index}><UserPlus /><span>Assento disponível</span></div>)}
             </div>
             <div className="lobby-actions">
               {me && <button className={`button ${me.ready ? "button--ghost" : "button--secondary"}`} type="button" onClick={() => void toggleReady()}>{me.ready ? "Não estou pronto" : "Estou pronto"}</button>}
-              {repository.kind === "local" && isHost && room.players.length < room.settings.maxPlayers && <button className="button button--ghost" type="button" onClick={() => void fillLocalSeats()}><Bot /> Preencher para demonstração</button>}
+              {repository.kind === "local" && isHost && room.players.length < fillTarget && <button className="button button--ghost" type="button" onClick={() => void fillLocalSeats()}><Bot /> Preencher para demonstração</button>}
             </div>
           </section>
 

@@ -8,6 +8,12 @@ import {
 } from "../src/game/application/game-engine.js";
 import { emptyResources, type Player } from "../src/game/domain/types.js";
 import {
+  AUREN_GAME_ID,
+  getGameManifest,
+  validatePlayerCount,
+  validateRoomCapacity,
+} from "../src/games/game-registry.js";
+import {
   clientGameCommandSchema,
   type ChatMessage,
   type ClientGameCommand,
@@ -112,6 +118,9 @@ export class GameSessionService {
     const settings = roomSettingsSchema.parse(input.settings);
     const name = input.name.trim();
     if (name.length < 2 || name.length > 48) throw new Error("Room name must have between 2 and 48 characters");
+    const gameKey = input.gameKey ?? AUREN_GAME_ID;
+    const manifest = getGameManifest(gameKey);
+    if (!validateRoomCapacity(manifest, settings.maxPlayers)) throw new Error("Invalid room capacity for this game");
 
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const code = normalizeCode(this.randomCode());
@@ -120,6 +129,7 @@ export class GameSessionService {
       const now = this.now().toISOString();
       const room = gameRoomSchema.parse({
         id: this.randomId(),
+        gameKey,
         code,
         name,
         hostId: host.id,
@@ -155,7 +165,7 @@ export class GameSessionService {
       const room = current.room;
       if (room.status !== "lobby") throw new Error("The game has already started");
       if (room.players.some((player) => player.profile.id === profile.id)) throw new Error("Player is already in the room");
-      if (room.players.length >= room.settings.maxPlayers) throw new Error("Room is full");
+      if (room.settings.maxPlayers !== null && room.players.length >= room.settings.maxPlayers) throw new Error("Room is full");
       if (room.players.some((player) => player.profile.color === profile.color)) throw new Error("Color is already in use");
       return {
         ...current,
@@ -212,9 +222,12 @@ export class GameSessionService {
     const current = authenticated.record;
     if (current.room.hostId !== authenticated.playerId) throw new Error("Only the host can start the game");
     if (current.room.status !== "lobby") throw new Error("The game has already started");
-    if (current.room.players.length !== current.room.settings.maxPlayers) throw new Error("The room needs every seat filled");
+    const manifest = getGameManifest(current.room.gameKey);
+    if (current.room.settings.maxPlayers !== null && current.room.players.length !== current.room.settings.maxPlayers) throw new Error("The room needs every seat filled");
+    if (!validatePlayerCount(manifest, current.room.players.length)) throw new Error("The room does not have a valid player count");
     if (!current.room.players.every((player) => player.ready)) throw new Error("Every player must be ready");
 
+    if (current.room.gameKey !== AUREN_GAME_ID) throw new Error("The selected game engine is not available");
     const state = createGame({
       id: gameId,
       roomCode: normalized,

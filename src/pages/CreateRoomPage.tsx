@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 
 import { repository, useAppStore } from "@/app/store";
+import { AUREN_GAME_ID } from "@/games/game-registry";
 import type { RoomSettings } from "@/multiplayer/types";
 import { AppShell } from "@/shared/components/AppShell";
 import { Field, SelectInput, TextInput } from "@/shared/components/Field";
@@ -44,7 +45,7 @@ export function CreateRoomPage() {
     setBusy(true);
     setError(null);
     try {
-      const room = await repository.createRoom({ name, host: profile, settings });
+      const room = await repository.createRoom({ name, host: profile, settings, gameKey: AUREN_GAME_ID });
       setRoom(room);
       void navigate(`/sala/${room.code}`);
     } catch (caught) {
@@ -66,7 +67,7 @@ export function CreateRoomPage() {
           <div className="form-grid">
             <Field label="Nome da sala"><TextInput value={name} onChange={(event) => setName(event.target.value)} maxLength={48} /></Field>
             <Field label="Acesso"><SelectInput value={settings.visibility} onChange={(event) => setSettings({ ...settings, visibility: event.target.value as RoomSettings["visibility"] })}><option value="private">Privada por código</option><option value="public">Pública</option></SelectInput></Field>
-            <Field label="Exploradores"><SelectInput value={settings.maxPlayers} onChange={(event) => setSettings({ ...settings, maxPlayers: Number(event.target.value) as 3 | 4 })}><option value={3}>3 jogadores</option><option value={4}>4 jogadores</option></SelectInput></Field>
+            <Field label="Exploradores"><SelectInput value={settings.maxPlayers ?? 2} onChange={(event) => setSettings({ ...settings, maxPlayers: Number(event.target.value) })}><option value={2}>2 jogadores</option><option value={3}>3 jogadores</option><option value={4}>4 jogadores</option></SelectInput></Field>
             <Field label="Pontos para vencer"><TextInput type="number" min={5} max={20} value={settings.targetScore} onChange={(event) => setSettings({ ...settings, targetScore: Number(event.target.value) })} /></Field>
             <Field label="Tempo por turno"><SelectInput value={settings.turnSeconds} onChange={(event) => setSettings({ ...settings, turnSeconds: Number(event.target.value) })}><option value={60}>1 minuto</option><option value={120}>2 minutos</option><option value={180}>3 minutos</option><option value={300}>5 minutos</option></SelectInput></Field>
             <Field label="Formato do mapa"><SelectInput value={settings.mapShape} onChange={(event) => setSettings({ ...settings, mapShape: event.target.value as RoomSettings["mapShape"] })}><option value="classic">Ilha clássica</option><option value="archipelago">Arquipélago</option><option value="wide">Horizonte amplo</option></SelectInput></Field>

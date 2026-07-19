@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { GameCommand, GameState } from "../game/application/game-engine.js";
+import { AUREN_GAME_ID } from "../games/game-registry.js";
 
 import type { ChatMessage } from "./protocol.js";
 
@@ -18,7 +19,7 @@ export type PlayerProfile = z.infer<typeof playerProfileSchema>;
 
 export const roomSettingsSchema = z.object({
   visibility: z.enum(["public", "private"]),
-  maxPlayers: z.union([z.literal(3), z.literal(4)]),
+  maxPlayers: z.number().int().min(2).nullable(),
   targetScore: z.number().int().min(5).max(20),
   turnSeconds: z.number().int().min(30).max(600),
   mapShape: z.enum(["classic", "archipelago", "wide"]),
@@ -45,6 +46,7 @@ export type RoomPlayer = z.infer<typeof roomPlayerSchema>;
 
 export const gameRoomSchema = z.object({
   id: z.string().min(1),
+  gameKey: z.string().min(1).max(64).default(AUREN_GAME_ID),
   code: z.string().length(6),
   name: z.string().min(2).max(48),
   hostId: z.string().min(1),
@@ -73,6 +75,7 @@ export interface CreateRoomInput {
   name: string;
   host: PlayerProfile;
   settings: RoomSettings;
+  gameKey?: string;
 }
 
 export interface GameRepository {
