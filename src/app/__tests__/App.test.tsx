@@ -186,4 +186,64 @@ describe("Auren application shell", () => {
     expect(await screen.findByRole("dialog", { name: /Solicitação de troca/i })).toBeInTheDocument();
     expect(screen.getByText(/Player p1 oferece/i)).toBeInTheDocument();
   });
+
+  it("exposes every core game action through mobile-friendly action sheets", async () => {
+    const game = createGame({
+      id: "game-mobile-actions",
+      roomCode: "MOBILE",
+      seed: "mobile-actions",
+      players: [makePlayer("p1"), makePlayer("p2")],
+      targetScore: 10,
+    });
+    game.phase = "actions";
+    game.activePlayerIndex = 0;
+    useAppStore.setState({
+      profile: { id: "p1", name: "Player p1", color: "ember", avatar: "compass", crest: "sun" },
+      game,
+    });
+    window.history.pushState({}, "", "/jogo/game-mobile-actions");
+    const user = userEvent.setup();
+
+    render(<App />);
+
+    await user.click(await screen.findByRole("button", { name: /^Construir$/i }));
+    expect(screen.getByRole("dialog", { name: /Opções de construção/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Construir estrada/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Construir aldeia/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Construir cidade/i })).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Fechar opções de construção/i }));
+
+    await user.click(screen.getByRole("button", { name: /^Mais$/i }));
+    expect(screen.getByRole("dialog", { name: /Mais ações/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Cartas de desenvolvimento/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Exploradores e histórico/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Encerrar turno/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Abandonar partida/i })).toBeInTheDocument();
+  });
+
+  it("uses an in-game confirmation dialog instead of the browser confirm", async () => {
+    const game = createGame({
+      id: "game-confirmation",
+      roomCode: "CONF23",
+      seed: "confirmation",
+      players: [makePlayer("p1"), makePlayer("p2")],
+      targetScore: 10,
+    });
+    game.phase = "actions";
+    game.activePlayerIndex = 0;
+    useAppStore.setState({
+      profile: { id: "p1", name: "Player p1", color: "ember", avatar: "compass", crest: "sun" },
+      game,
+    });
+    window.history.pushState({}, "", "/jogo/game-confirmation");
+    const nativeConfirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const user = userEvent.setup();
+
+    render(<App />);
+    await user.click(await screen.findByRole("button", { name: /^Mais$/i }));
+    await user.click(screen.getByRole("button", { name: /Encerrar turno/i }));
+
+    expect(nativeConfirm).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: /Confirmar fim do turno/i })).toBeInTheDocument();
+  });
 });
