@@ -71,6 +71,19 @@ export const gameRoomSchema = z.object({
 
 export type GameRoom = z.infer<typeof gameRoomSchema>;
 
+export const publicRoomSummarySchema = z.object({
+  code: z.string().length(6),
+  name: z.string().min(2).max(48),
+  gameKey: z.string().min(1).max(64),
+  playerCount: z.number().int().nonnegative(),
+  maxPlayers: z.number().int().min(2).nullable(),
+  targetScore: z.number().int().min(5).max(20),
+  turnSeconds: z.number().int().min(30).max(600),
+  createdAt: z.string(),
+});
+
+export type PublicRoomSummary = z.infer<typeof publicRoomSummarySchema>;
+
 export type RepositoryEvent =
   | { kind: "room"; roomCode: string }
   | { kind: "game"; roomCode: string }
@@ -93,6 +106,7 @@ export interface CreateRoomInput {
 export interface GameRepository {
   readonly kind: "local" | "online";
   createRoom(input: CreateRoomInput): Promise<GameRoom>;
+  listPublicRooms(): Promise<PublicRoomSummary[]>;
   getRoom(code: string): Promise<GameRoom | null>;
   joinRoom(code: string, profile: PlayerProfile): Promise<GameRoom>;
   setReady(code: string, playerId: string, ready: boolean): Promise<GameRoom>;

@@ -47,6 +47,13 @@ function completeSetup() {
   return { state, order };
 }
 
+function totalResourceSupply(state: GameState): number {
+  const playerCards = state.players.reduce((total, player) => (
+    total + Object.values(player.resources).reduce((subtotal, amount) => subtotal + amount, 0)
+  ), 0);
+  return playerCards + Object.values(state.bank).reduce((total, amount) => total + amount, 0);
+}
+
 describe("initial placement", () => {
   it("supports a complete two-player setup", () => {
     const state = createGame({
@@ -428,6 +435,149 @@ describe("player trades and development cards", () => {
     expect(state.players[1]!.resources).toMatchObject({ wood: 1, ore: 0 });
   });
 
+  it("conserves every resource card and rejects malformed trade bundles", () => {
+    const setup = completeSetup().state;
+    const state: GameState = {
+      ...setup,
+      phase: "actions",
+      players: setup.players.map((player) => ({
+        ...player,
+        resources: player.id === "p1"
+          ? { ...emptyResources(), wood: 2 }
+          : player.id === "p2" ? { ...emptyResources(), ore: 1 } : emptyResources(),
+      })),
+    };
+    const supplyBefore = totalResourceSupply(state);
+    const open = applyGameCommand(state, {
+      id: "conserved-offer",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: { ...emptyResources(), wood: 2 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2"],
+    });
+    const accepted = applyGameCommand(open, {
+      id: "conserved-acceptance",
+      type: "respondTrade",
+      actorId: "p2",
+      tradeId: "conserved-offer",
+      response: "accept",
+    });
+
+    expect(totalResourceSupply(accepted)).toBe(supplyBefore);
+    expect(accepted.players[0]!.resources).toMatchObject({ wood: 0, ore: 1 });
+    expect(accepted.players[1]!.resources).toMatchObject({ wood: 2, ore: 0 });
+    expect(() => applyGameCommand(state, {
+      id: "negative-offer",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: { wood: -1, brick: 2, wool: 0, grain: 0, ore: 0 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2"],
+    })).toThrow("non-negative whole numbers");
+    expect(() => applyGameCommand(state, {
+      id: "overlapping-offer",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: { ...emptyResources(), wood: 1 },
+      request: { ...emptyResources(), wood: 1 },
+      targetPlayerIds: ["p2"],
+    })).toThrow("same resource");
+  });
+
+  it("keeps a request open until everyone refuses and lets only the proposer cancel it", () => {
+    const setup = completeSetup().state;
+    const base: GameState = {
+      ...setup,
+      phase: "actions",
+      players: setup.players.map((player) => ({
+        ...player,
+        resources: player.id === "p1" ? { ...emptyResources(), wood: 1 } : { ...emptyResources(), ore: 1 },
+      })),
+    };
+    const open = applyGameCommand(base, {
+      id: "group-offer",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: { ...emptyResources(), wood: 1 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2", "p3"],
+    });
+
+    expect(() => applyGameCommand(open, {
+      id: "blocked-end-turn",
+      type: "endTurn",
+      actorId: "p1",
+    })).toThrow("Resolve or cancel the open trade");
+    expect(() => applyGameCommand(open, {
+      id: "unauthorized-cancel",
+      type: "cancelTrade",
+      actorId: "p2",
+      tradeId: "group-offer",
+    } as never)).toThrow("Only the proposer");
+
+    const oneRejection = applyGameCommand(open, {
+      id: "first-rejection",
+      type: "respondTrade",
+      actorId: "p2",
+      tradeId: "group-offer",
+      response: "reject",
+    });
+    expect(oneRejection.trades[0]).toMatchObject({ status: "open", rejectedPlayerIds: ["p2"] });
+    expect(() => applyGameCommand(oneRejection, {
+      id: "changed-mind",
+      type: "respondTrade",
+      actorId: "p2",
+      tradeId: "group-offer",
+      response: "accept",
+    })).toThrow("already refused");
+
+    const allRejected = applyGameCommand(oneRejection, {
+      id: "last-rejection",
+      type: "respondTrade",
+      actorId: "p3",
+      tradeId: "group-offer",
+      response: "reject",
+    });
+    expect(allRejected.trades[0]).toMatchObject({ status: "rejected", rejectedPlayerIds: ["p2", "p3"] });
+
+    const cancelled = applyGameCommand(open, {
+      id: "proposer-cancel",
+      type: "cancelTrade",
+      actorId: "p1",
+      tradeId: "group-offer",
+    } as never);
+    expect(cancelled.trades[0]!.status).toBe("cancelled");
+    expect(applyGameCommand(cancelled, { id: "allowed-end-turn", type: "endTurn", actorId: "p1" }).phase).toBe("roll");
+  });
+
+  it("expires an unanswered request when the action timer ends", () => {
+    const setup = completeSetup().state;
+    const base: GameState = {
+      ...setup,
+      phase: "actions",
+      phaseStartedAt: "2026-07-18T12:00:00.000Z",
+      phaseDeadlineAt: "2026-07-18T12:00:30.000Z",
+      players: setup.players.map((player) => ({
+        ...player,
+        resources: player.id === "p1" ? { ...emptyResources(), wood: 1 } : { ...emptyResources(), ore: 1 },
+      })),
+    };
+    const open = applyGameCommand(base, {
+      id: "timed-offer",
+      type: "proposeTrade",
+      actorId: "p1",
+      offer: { ...emptyResources(), wood: 1 },
+      request: { ...emptyResources(), ore: 1 },
+      targetPlayerIds: ["p2", "p3"],
+    }, { now: () => new Date("2026-07-18T12:00:01.000Z") });
+    const expired = applyExpiredPhase(open, new Date("2026-07-18T12:00:30.000Z"));
+
+    expect(expired.trades[0]!.status).toBe("expired");
+    expect(expired.activePlayerIndex).toBe(1);
+    expect(expired.phase).toBe("roll");
+  });
+
   it("plays monopoly only from a previous turn and only once per turn", () => {
     const setup = completeSetup().state;
     const monopolyCard = { id: "monopoly-card", kind: "monopoly" as const, purchasedTurn: 1, revealed: false };
@@ -707,5 +857,58 @@ describe("player trades and development cards", () => {
       cardId: "bad-roads",
       edgeIds: ["missing-edge"],
     })).toThrow("Invalid free road position");
+  });
+
+  it("resolves every timed phase with a deterministic automatic action", () => {
+    const expiredAt = "2000-01-01T00:00:00.000Z";
+    const now = new Date("2026-07-18T12:00:00.000Z");
+    const expire = (state: GameState) => applyExpiredPhase({ ...state, phaseDeadlineAt: expiredAt }, now, { random: () => 0 });
+
+    const settlement = expire(newGame());
+    expect(settlement.phase).toBe("setupRoad");
+    expect(settlement.board.vertices.some((vertex) => vertex.building?.playerId === "p1")).toBe(true);
+
+    const road = expire(settlement);
+    expect(road.phase).toBe("setupSettlement");
+    expect(road.board.edges.some((edge) => edge.roadPlayerId === "p1")).toBe(true);
+
+    const setup = completeSetup().state;
+    const rolled = expire(setup);
+    expect(rolled.dice).toEqual({ first: 1, second: 1, total: 2 });
+
+    const actions: GameState = {
+      ...setup,
+      phase: "actions",
+      trades: [{
+        id: "timed-trade",
+        proposerId: "p1",
+        offer: { ...emptyResources(), wood: 1 },
+        request: { ...emptyResources(), ore: 1 },
+        targetPlayerIds: ["p2"],
+        status: "open",
+        responderId: null,
+        rejectedPlayerIds: [],
+        createdTurn: setup.turnNumber,
+      }],
+    };
+    const ended = expire(actions);
+    expect(ended.trades[0]?.status).toBe("expired");
+    expect(ended.activePlayerIndex).toBe(1);
+
+    const discard: GameState = {
+      ...setup,
+      phase: "discard",
+      pendingDiscards: { p1: 2 },
+      players: setup.players.map((player) => player.id === "p1"
+        ? { ...player, resources: { ...emptyResources(), wood: 2 } }
+        : player),
+    };
+    const discarded = expire(discard);
+    expect(discarded.pendingDiscards).toEqual({});
+    expect(discarded.players[0]?.resources.wood).toBe(0);
+
+    const robber = expire({ ...setup, phase: "robber" });
+    expect(robber.board.tiles.some((tile) => tile.hasRobber)).toBe(true);
+    expect(robber.phase).toBe("actions");
   });
 });

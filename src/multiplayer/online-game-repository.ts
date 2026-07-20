@@ -4,6 +4,7 @@ import { z } from "zod";
 import { RealtimeClient } from "./realtime-client";
 import {
   gameRoomSchema,
+  publicRoomSummarySchema,
   type CreateRoomInput,
   type GameRepository,
   type GameRoom,
@@ -134,6 +135,11 @@ export class OnlineGameRepository implements GameRepository {
       if (error instanceof RepositoryApiError && error.status === 404) return null;
       throw error;
     }
+  }
+
+  async listPublicRooms() {
+    const value = await this.request("/api/rooms?visibility=public");
+    return z.array(publicRoomSummarySchema).parse(value);
   }
 
   async joinRoom(code: string, profile: PlayerProfile): Promise<GameRoom> {

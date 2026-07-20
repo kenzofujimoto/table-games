@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { GameState } from "@/game/application/game-engine";
+import { createGame, type GameState } from "@/game/application/game-engine";
 import { emptyResources, type Player } from "@/game/domain/types";
 
 import { LocalGameRepository } from "../local-game-repository";
@@ -37,7 +37,44 @@ const profiles: PlayerProfile[] = [
   { id: "p3", name: "Maya", color: "moss", avatar: "owl", crest: "leaf" },
 ];
 
+function createPlayer(id: string, color: Player["color"], name = id): Player {
+  return {
+    id,
+    name,
+    color,
+    avatar: "compass",
+    connected: true,
+    ready: true,
+    resources: emptyResources(),
+    remainingPieces: { roads: 15, settlements: 5, cities: 4 },
+    developmentCards: [],
+    playedKnights: 0,
+    revealedVictoryPoints: 0,
+  };
+}
+
 describe("local room repository", () => {
+  it("lists only discoverable public rooms with available seats", async () => {
+    let random = 0;
+    const repository = new LocalGameRepository({
+      storage: new MemoryStorage(),
+      random: () => (random += 0.071) % 0.99,
+    });
+    const publicSettings = { ...settings, visibility: "public" as const };
+    const open = await repository.createRoom({ name: "Mesa aberta", host: profiles[0]!, settings: publicSettings });
+    await repository.createRoom({ name: "Mesa privada", host: profiles[1]!, settings });
+    const full = await repository.createRoom({
+      name: "Mesa lotada",
+      host: profiles[0]!,
+      settings: { ...publicSettings, maxPlayers: 2 },
+    });
+    await repository.joinRoom(full.code, profiles[1]!);
+
+    await expect(repository.listPublicRooms()).resolves.toEqual([
+      expect.objectContaining({ code: open.code, name: open.name, playerCount: 1 }),
+    ]);
+  });
+
   it("creates, joins and restores a private room by code", async () => {
     const storage = new MemoryStorage();
     const repository = new LocalGameRepository({ storage, random: () => 0.1 });
@@ -132,5 +169,74 @@ describe("local room repository", () => {
     unsubscribe();
     channel.onmessage?.({ data: { kind: "room", roomCode: "ABC234" } } as MessageEvent);
     expect(listener).toHaveBeenCalledOnce();
+  });
+
+  it("transfers lobby ownership and moves departed game players to autopilot", async () => {
+    let random = 0;
+    const repository = new LocalGameRepository({
+      storage: new MemoryStorage(),
+      random: () => (random += 0.083) % 0.99,
+    });
+    const room = await repository.createRoom({ name: "Mesa", host: profiles[0]!, settings: { ...settings, maxPlayers: 2 } });
+    await repository.joinRoom(room.code, profiles[1]!);
+    const transferred = await repository.leaveRoom(room.code, "p1");
+    expect(transferred.hostId).toBe("p2");
+    expect(transferred.players[0]?.seat).toBe(0);
+
+    const secondRoom = await repository.createRoom({ name: "Outra mesa", host: profiles[0]!, settings: { ...settings, maxPlayers: 2 } });
+    await repository.joinRoom(secondRoom.code, profiles[1]!);
+    await repository.setReady(secondRoom.code, "p1", true);
+    await repository.setReady(secondRoom.code, "p2", true);
+    const started = await repository.startGame(secondRoom.code, "p1");
+    const game = createGame({
+      id: started.gameId!,
+      roomCode: started.code,
+      seed: "local-autopilot",
+      players: [
+        createPlayer("p1", "ember", "Lia"),
+        createPlayer("p2", "tide", "Noah"),
+      ],
+      targetScore: 10,
+    });
+    await repository.saveGame(game);
+
+    const departed = await repository.leaveRoom(started.code, "p2");
+    expect(departed.players.find((player) => player.profile.id === "p2")).toMatchObject({ control: "autopilot", connected: false });
+    const savedGame = await repository.loadGame(game.id);
+    expect(savedGame?.players.find((player) => player.id === "p2")).toMatchObject({ control: "autopilot" });
+  });
+
+  it("executes commands, advances expired phases and validates local chat", async () => {
+    const repository = new LocalGameRepository({ storage: new MemoryStorage(), random: () => 0.7 });
+    const game = createGame({
+      id: "local-game",
+      roomCode: "LOCAL2",
+      seed: "local-actions",
+      players: [
+        createPlayer("p1", "ember"),
+        createPlayer("p2", "tide"),
+      ],
+      targetScore: 10,
+    });
+    const vertexId = game.board.vertices.find((vertex) => vertex.building === null)!.id;
+    const commanded = await repository.executeCommand(game, {
+      id: "local-command",
+      type: "placeSettlement",
+      actorId: "p1",
+      vertexId,
+    });
+    expect(commanded.version).toBe(1);
+
+    const expired = await repository.advanceExpiredGame({
+      ...game,
+      phaseDeadlineAt: "2000-01-01T00:00:00.000Z",
+    });
+    expect(expired.version).toBe(1);
+
+    const listener = vi.fn();
+    repository.subscribe("LOCAL2", listener);
+    await repository.sendChat("local2", profiles[0]!, "  Vamos jogar!  ");
+    expect(listener).toHaveBeenCalledWith(expect.objectContaining({ kind: "chat", roomCode: "LOCAL2" }));
+    await expect(repository.sendChat("LOCAL2", profiles[0]!, " ")).rejects.toThrow("entre 1 e 280");
   });
 });

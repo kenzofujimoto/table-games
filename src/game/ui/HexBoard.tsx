@@ -1,10 +1,11 @@
-import { LocateFixed, Minus, Plus } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { Anchor, LocateFixed, Minus, Plus } from "lucide-react";
+import { useMemo, useState } from "react";
 
 import type { GameState } from "@/game/application/game-engine";
 import type { BoardPort } from "@/game/domain/types";
 
-import { clampCamera, clientDeltaToViewBox } from "./board-camera";
+import { clampCamera } from "./board-camera";
+import { RESOURCE_META } from "./resource-meta";
 
 interface HexBoardProps {
   state: GameState;
@@ -54,7 +55,6 @@ function portAriaLabel(port: BoardPort): string {
 
 export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles, onVertex, onEdge, onTile }: HexBoardProps) {
   const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
-  const drag = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
   const playerColors = useMemo(() => Object.fromEntries(state.players.map((player) => [player.id, player.color])), [state.players]);
 
   const zoom = (delta: number) => setCamera((current) => clampCamera({ ...current, zoom: current.zoom + delta }));
@@ -70,28 +70,11 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
       <svg
         className="hex-board"
         viewBox="-390 -310 780 620"
+        preserveAspectRatio="xMidYMid meet"
+        data-camera-mode="zoom-only"
         role="img"
         aria-label="Tabuleiro hexagonal interativo"
         onWheel={(event) => { event.preventDefault(); zoom(event.deltaY < 0 ? 0.08 : -0.08); }}
-        onPointerDown={(event) => {
-          if ((event.target as Element).closest("[data-interactive]")) return;
-          drag.current = { x: event.clientX, y: event.clientY, originX: camera.x, originY: camera.y };
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => {
-          if (!drag.current) return;
-          const delta = clientDeltaToViewBox(
-            { x: event.clientX - drag.current.x, y: event.clientY - drag.current.y },
-            event.currentTarget.getBoundingClientRect(),
-          );
-          setCamera((current) => clampCamera({
-            ...current,
-            x: drag.current!.originX + delta.x,
-            y: drag.current!.originY + delta.y,
-          }));
-        }}
-        onPointerUp={() => { drag.current = null; }}
-        onPointerCancel={() => { drag.current = null; }}
       >
         <defs>
           <filter id="tile-shadow"><feDropShadow dx="0" dy="5" stdDeviation="5" floodOpacity=".38" /></filter>
@@ -100,7 +83,7 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
             <image href={`/textures/${terrain}.webp`} x="0" y="0" width="132" height="132" preserveAspectRatio="xMidYMid slice" />
           </pattern>)}
         </defs>
-        <rect x="-500" y="-400" width="1000" height="800" rx="36" fill="url(#ocean)" />
+        <rect className="board-ocean-backdrop" x="-2048" y="-2048" width="4096" height="4096" fill="url(#ocean)" />
         <g transform={`translate(${camera.x} ${camera.y}) scale(${camera.zoom})`}>
           {state.board.ports.map((port) => {
             const edge = state.board.edges.find((candidate) => candidate.id === port.edgeId);
@@ -113,11 +96,13 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
             const distance = Math.hypot(midpointX, midpointY) || 1;
             const x = midpointX + (midpointX / distance) * 22;
             const y = midpointY + (midpointY / distance) * 22;
+            const PortIcon = port.kind === "generic" ? Anchor : RESOURCE_META[port.kind].icon;
             return <g key={port.id} className={`board-port board-port--${port.kind}`} aria-label={portAriaLabel(port)}>
               <line className="port-pier" x1={x1} y1={y1} x2={x} y2={y} />
               <line className="port-pier" x1={x2} y1={y2} x2={x} y2={y} />
-              <circle className="port-badge" cx={x} cy={y} r="19" />
-              <text className="port-ratio" x={x} y={y + 4}>{port.ratio}:1</text>
+              <circle className="port-badge" cx={x} cy={y} r="22" />
+              <PortIcon className={`port-resource-icon port-resource-icon--${port.kind}`} x={x - 8} y={y - 16} width="16" height="16" />
+              <text className="port-ratio" x={x} y={y + 14}>{port.ratio}:1</text>
             </g>;
           })}
 

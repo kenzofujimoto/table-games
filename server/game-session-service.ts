@@ -27,6 +27,7 @@ import {
   type GameRoom,
   type PlayerPresence,
   type PlayerProfile,
+  type PublicRoomSummary,
 } from "../src/multiplayer/types.js";
 import type { OnlineStore, PresenceLease, StoredRoomRecord } from "./online-store.js";
 
@@ -306,6 +307,24 @@ export class GameSessionService {
       }
     }
     return this.hydrateRoomPresence(room);
+  }
+
+  async listPublicRooms(): Promise<PublicRoomSummary[]> {
+    const records = await this.store.listPublicRooms();
+    return records
+      .filter(({ room }) => room.settings.visibility === "public"
+        && room.status === "lobby"
+        && (room.settings.maxPlayers === null || room.players.length < room.settings.maxPlayers))
+      .map(({ room }) => ({
+        code: room.code,
+        name: room.name,
+        gameKey: room.gameKey,
+        playerCount: room.players.length,
+        maxPlayers: room.settings.maxPlayers,
+        targetScore: room.settings.targetScore,
+        turnSeconds: room.settings.turnSeconds,
+        createdAt: room.createdAt,
+      }));
   }
 
   async joinRoom(code: string, rawProfile: PlayerProfile): Promise<RoomSession> {

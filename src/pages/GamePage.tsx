@@ -1,4 +1,4 @@
-import { ArrowRightLeft, BookOpenCheck, Building2, ChevronRight, Clock3, Crown, Dices, Flag, Home, LogOut, MapPin, Radio, Route, Settings, ShieldAlert, Sparkles, Trophy, Users, X } from "lucide-react";
+import { ArrowRightLeft, BookOpenCheck, Building2, ChevronRight, Clock3, Crown, Dices, Flag, Hammer, Home, LogOut, MapPin, MoreHorizontal, Radio, Route, Settings, ShieldAlert, Sparkles, Trophy, Users, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 
@@ -9,13 +9,23 @@ import { calculateScore } from "@/game/domain/scoring";
 import { validRoadEdges, validSettlementVertices } from "@/game/domain/placement";
 import { RESOURCE_TYPES } from "@/game/domain/types";
 import { DevelopmentModal, DiscardModal, TradeModal } from "@/game/ui/GameModals";
+import { GameConfirmationDialog, MobileBuildSheet, MobileMoreSheet } from "@/game/ui/GameActionDialogs";
 import { HexBoard } from "@/game/ui/HexBoard";
 import { ResourceToken } from "@/game/ui/ResourceToken";
 import { formatCountdown, remainingMilliseconds } from "@/game/ui/countdown";
-import { canOpenTrade, canPlayerInteract, resourceCardTotal } from "@/game/ui/player-view";
+import { canOpenTrade, canPlayerInteract, pendingTradeForViewer, resourceCardTotal } from "@/game/ui/player-view";
 import { GameLogo } from "@/shared/components/GameLogo";
 
 type BuildMode = "road" | "settlement" | "city" | null;
+type MobileSheet = "build" | "more" | null;
+
+interface ConfirmationState {
+  title: string;
+  description: string;
+  confirmLabel: string;
+  dangerous?: boolean;
+  action: () => Promise<void>;
+}
 
 const phaseLabels = {
   setupSettlement: "Posicione uma aldeia",
@@ -40,6 +50,8 @@ export function GamePage() {
   const [loading, setLoading] = useState(storedGame?.id !== gameId);
   const [buildMode, setBuildMode] = useState<BuildMode>(null);
   const [modal, setModal] = useState<"trade" | "development" | null>(null);
+  const [mobileSheet, setMobileSheet] = useState<MobileSheet>(null);
+  const [confirmation, setConfirmation] = useState<ConfirmationState | null>(null);
   const [clockNow, setClockNow] = useState(() => Date.now());
   const timerTicking = useRef(false);
   const navigate = useNavigate();
@@ -85,6 +97,7 @@ export function GamePage() {
   }, [buildMode, game, profile?.id]);
 
   const remaining = remainingMilliseconds(game?.phaseDeadlineAt, new Date(clockNow));
+  const pendingTradeId = game && profile ? pendingTradeForViewer(game, profile.id)?.id ?? null : null;
 
   useEffect(() => {
     if (!game || game.phase === "finished" || remaining > 0 || timerTicking.current) return;
@@ -107,15 +120,28 @@ export function GamePage() {
   if (!viewer) return <Navigate to="/" replace />;
   const canAct = canPlayerInteract(game, viewer.id) && actor.id === viewer.id;
   const tradeAvailable = canOpenTrade(game, viewer.id);
+  const hasOpenTrade = game.trades.some((trade) => trade.status === "open");
+  const canEndTurn = game.phase === "actions" && canAct && !hasOpenTrade;
 
+  const performCommand = async (command: GameCommand) => {
+    const next = await dispatch(command);
+    if (next) setBuildMode(null);
+  };
   const send = async (command: GameCommand) => {
     const confirmBuild = shouldConfirmGameCommand(command.type, settings);
     const confirmEndTurn = command.type === "endTurn" && game.config.confirmEndTurn;
-    if ((confirmBuild || confirmEndTurn) && !window.confirm(
-      confirmBuild ? "Confirmar esta construção e o gasto dos materiais?" : "Confirmar o fim do turno?",
-    )) return;
-    const next = await dispatch(command);
-    if (next) setBuildMode(null);
+    if (confirmBuild || confirmEndTurn) {
+      setConfirmation({
+        title: confirmBuild ? "Confirmar construção" : "Confirmar fim do turno",
+        description: confirmBuild
+          ? "Os materiais indicados serão gastos imediatamente quando a peça for colocada."
+          : "Depois de encerrar, as ações restantes passam para o próximo explorador.",
+        confirmLabel: confirmBuild ? "Construir" : "Encerrar turno",
+        action: async () => performCommand(command),
+      });
+      return;
+    }
+    await performCommand(command);
   };
   const clickVertex = (vertexId: string) => {
     if (game.phase === "setupSettlement") void send({ id: crypto.randomUUID(), type: "placeSettlement", actorId: viewer.id, vertexId });
@@ -131,20 +157,27 @@ export function GamePage() {
     const victimId = tile.vertexIds.flatMap((vertexId) => game.board.vertices.find((vertex) => vertex.id === vertexId)?.building?.playerId ?? []).find((playerId) => playerId !== viewer.id && resourceCardTotal(game.players.find((player) => player.id === playerId)!) > 0) ?? null;
     void send({ id: crypto.randomUUID(), type: "moveRobber", actorId: viewer.id, tileId, victimId });
   };
-  const abandon = async () => {
-    if (!window.confirm("Abandonar a partida e deixar seu assento no piloto automático?")) return;
-    await repository.leaveRoom(game.roomCode, viewer.id);
-    setGame(null);
-    void navigate("/");
+  const requestAbandon = () => {
+    setConfirmation({
+      title: "Abandonar partida",
+      description: "Você sairá da mesa e seu assento ficará no piloto automático até uma possível reconexão.",
+      confirmLabel: "Abandonar partida",
+      dangerous: true,
+      action: async () => {
+        await repository.leaveRoom(game.roomCode, viewer.id);
+        setGame(null);
+        void navigate("/");
+      },
+    });
   };
 
   return (
     <main className="game-screen">
-      <header className="game-topbar"><GameLogo compact /><div className="turn-banner"><span className={`avatar-token avatar-token--${actor.color}`}>{actor.name[0]}</span><div><small>TURNO {game.turnNumber}</small><strong>Vez de {actor.name}</strong></div><span className="phase-pill"><Radio /> {phaseLabels[game.phase]}</span></div><div className="game-top-actions"><span className={remaining <= 10_000 ? "is-urgent" : ""}><Clock3 /> {formatCountdown(remaining)}</span><Link to="/configuracoes" aria-label="Configurações"><Settings /></Link><button type="button" onClick={() => void abandon()} aria-label="Abandonar partida"><LogOut /></button></div></header>
+      <header className="game-topbar"><GameLogo compact /><div className="turn-banner"><span className={`avatar-token avatar-token--${actor.color}`}>{actor.name[0]}</span><div><small>TURNO {game.turnNumber}</small><strong>Vez de {actor.name}</strong></div><span className="phase-pill"><Radio /> {phaseLabels[game.phase]}</span></div><div className="game-top-actions"><span className={remaining <= 10_000 ? "is-urgent" : ""}><Clock3 /> {formatCountdown(remaining)}</span><Link to="/configuracoes" aria-label="Configurações"><Settings /></Link><button type="button" onClick={requestAbandon} aria-label="Abandonar partida"><LogOut /></button></div></header>
 
       <aside className="players-rail"><div className="rail-title"><Users /> Exploradores</div>{game.players.map((player, index) => {
         const score = calculateScore(player, game.board, game.achievements);
-        return <article className={`game-player-card ${index === game.activePlayerIndex ? "is-active" : ""}`} key={player.id}><span className={`avatar-token avatar-token--${player.color}`}>{player.name[0]}</span><div><strong>{player.name}</strong><small><span className={`presence ${player.connected ? "is-online" : ""}`} /> {{ online: "Online", reconnecting: "Reconectando", offline: "Offline", autopilot: "Piloto automático" }[player.connectionStatus ?? (player.connected ? "online" : "reconnecting")]}</small><span className="card-count">▰ {resourceCardTotal(player)} cartas</span></div><div className="score-gem">{score.visible}</div>{game.achievements.longestRoadPlayerId === player.id && <Route className="award-icon" />}{game.achievements.largestArmyPlayerId === player.id && <Crown className="award-icon" />}</article>;
+        return <article className={`game-player-card game-player-card--${player.color} ${index === game.activePlayerIndex ? "is-active" : ""}`} key={player.id}><span className={`avatar-token avatar-token--${player.color}`}>{player.name[0]}</span><div><strong>{player.name}</strong><small><span className={`presence ${player.connected ? "is-online" : ""}`} /> {{ online: "Online", reconnecting: "Reconectando", offline: "Offline", autopilot: "Piloto automático" }[player.connectionStatus ?? (player.connected ? "online" : "reconnecting")]}</small><span className="card-count">▰ {resourceCardTotal(player)} cartas</span></div><div className="score-gem">{score.visible}</div>{game.achievements.longestRoadPlayerId === player.id && <Route className="award-icon" />}{game.achievements.largestArmyPlayerId === player.id && <Crown className="award-icon" />}</article>;
       })}<div className="seed-card"><MapPin /><span>Seed do mapa<strong>{game.seed}</strong></span></div></aside>
 
       <section className="board-stage"><div className="board-instruction"><Sparkles /><span><small>ETAPA ATUAL</small><strong>{phaseLabels[game.phase]}</strong></span></div><HexBoard state={game} {...interaction} onVertex={clickVertex} onEdge={clickEdge} onTile={clickTile} /></section>
@@ -156,11 +189,14 @@ export function GamePage() {
         <section className="event-log"><div className="rail-title"><Flag /> Histórico</div><div>{[...game.events.slice(-7)].reverse().map((item) => <p key={item.id}><span />{item.message}</p>)}</div></section>
       </aside>
 
-      <footer className="resource-dock"><div className="resource-owner"><span className={`avatar-token avatar-token--${viewer.color}`}>{viewer.name[0]}</span><div><small>SEUS RECURSOS</small><strong>{viewer.name}</strong></div></div><div className="resource-list">{RESOURCE_TYPES.map((resource) => <ResourceToken resource={resource} amount={viewer.resources[resource]} key={resource} />)}</div><button className="button button--danger desktop-end-turn" type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id })}>Encerrar turno <ChevronRight /></button><nav className="mobile-action-bar"><button type="button" disabled={game.phase !== "roll" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "rollDice", actorId: viewer.id })}><Dices /> Dados</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setBuildMode("road")}><Route /> Estrada</button><button type="button" disabled={!tradeAvailable} onClick={() => setModal("trade")}><ArrowRightLeft /> Trocar</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id })}><Flag /> Encerrar</button></nav></footer>
+      <footer className="resource-dock"><div className="resource-owner"><span className={`avatar-token avatar-token--${viewer.color}`}>{viewer.name[0]}</span><div><small>SEUS RECURSOS</small><strong>{viewer.name}</strong></div></div><div className="resource-list">{RESOURCE_TYPES.map((resource) => <ResourceToken resource={resource} amount={viewer.resources[resource]} key={resource} />)}</div><button className="button button--danger desktop-end-turn" type="button" disabled={!canEndTurn} title={hasOpenTrade ? "Cancele ou aguarde a resolução da troca aberta" : undefined} onClick={() => void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id })}>Encerrar turno <ChevronRight /></button><nav className="mobile-action-bar" aria-label="Ações da partida"><button type="button" disabled={game.phase !== "roll" || !canAct} onClick={() => void send({ id: crypto.randomUUID(), type: "rollDice", actorId: viewer.id })}><Dices /> Dados</button><button type="button" disabled={game.phase !== "actions" || !canAct} onClick={() => setMobileSheet("build")}><Hammer /> Construir</button><button type="button" disabled={!tradeAvailable} onClick={() => setModal("trade")}><ArrowRightLeft /> Trocar</button><button type="button" onClick={() => setMobileSheet("more")}><MoreHorizontal /> Mais</button></nav></footer>
 
       {game.phase === "discard" && <DiscardModal state={game} viewerId={viewer.id} dispatch={dispatch} />}
-      {modal === "trade" && <TradeModal state={game} viewerId={viewer.id} dispatch={dispatch} onClose={() => setModal(null)} />}
+      {(modal === "trade" || pendingTradeId) && <TradeModal state={game} viewerId={viewer.id} dispatch={dispatch} onClose={() => setModal(null)} />}
       {modal === "development" && <DevelopmentModal state={game} viewerId={viewer.id} dispatch={dispatch} onClose={() => setModal(null)} />}
+      {mobileSheet === "build" && <MobileBuildSheet selected={buildMode} onSelect={(choice) => { setBuildMode(choice); setMobileSheet(null); }} onClose={() => setMobileSheet(null)} />}
+      {mobileSheet === "more" && <MobileMoreSheet state={game} canUseCards={game.phase === "actions" && canAct} canEndTurn={canEndTurn} hasOpenTrade={hasOpenTrade} onDevelopment={() => { setMobileSheet(null); setModal("development"); }} onEndTurn={() => { setMobileSheet(null); void send({ id: crypto.randomUUID(), type: "endTurn", actorId: viewer.id }); }} onAbandon={() => { setMobileSheet(null); requestAbandon(); }} onClose={() => setMobileSheet(null)} />}
+      {confirmation && <GameConfirmationDialog {...confirmation} onCancel={() => setConfirmation(null)} onConfirm={() => { const action = confirmation.action; setConfirmation(null); void action(); }} />}
       {error && <button className="floating-error" type="button" onClick={() => setError(null)}><ShieldAlert /> {error}<X /></button>}
       {game.winnerId && <div className="victory-overlay"><div className="victory-rays" /><section><Trophy /><div className="eyebrow">EXPEDIÇÃO CONCLUÍDA</div><h1>{game.players.find((player) => player.id === game.winnerId)?.name} venceu!</h1><p>Uma rota digna de entrar para os mapas de Auren.</p><div className="victory-score">{game.players.map((player) => <div key={player.id}><span className={`avatar-token avatar-token--${player.color}`}>{player.name[0]}</span><strong>{player.name}</strong><b>{calculateScore(player, game.board, game.achievements).total} pts</b></div>)}</div><div className="hero__actions"><Link className="button button--primary" to="/perfil?next=/criar">Nova partida</Link><Link className="button button--ghost" to="/">Voltar ao menu</Link></div></section></div>}
     </main>

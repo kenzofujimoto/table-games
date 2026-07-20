@@ -18,6 +18,15 @@ export class InMemoryOnlineStore implements OnlineStore {
     return record ? clone(record) : null;
   }
 
+  async listPublicRooms(): Promise<StoredRoomRecord[]> {
+    return [...this.rooms.values()]
+      .filter(({ room }) => room.settings.visibility === "public"
+        && room.status === "lobby"
+        && (room.settings.maxPlayers === null || room.players.length < room.settings.maxPlayers))
+      .sort((left, right) => right.room.createdAt.localeCompare(left.room.createdAt))
+      .map(clone);
+  }
+
   async createRoom(record: StoredRoomRecord): Promise<boolean> {
     if (this.rooms.has(record.room.code)) return false;
     this.rooms.set(record.room.code, clone(record));

@@ -18,6 +18,7 @@ export interface PresenceLease {
 
 export interface OnlineStore {
   getRoom(code: string): Promise<StoredRoomRecord | null>;
+  listPublicRooms(): Promise<StoredRoomRecord[]>;
   createRoom(record: StoredRoomRecord): Promise<boolean>;
   compareAndSetRoom(code: string, expectedRevision: number, record: StoredRoomRecord): Promise<boolean>;
   getGame(gameId: string): Promise<GameState | null>;

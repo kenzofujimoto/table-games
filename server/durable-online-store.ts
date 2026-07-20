@@ -24,6 +24,10 @@ export class DurableOnlineStore implements OnlineStore {
     return await this.cache.getRoom(code) ?? recovered;
   }
 
+  async listPublicRooms(): Promise<StoredRoomRecord[]> {
+    return this.cache.listPublicRooms();
+  }
+
   async createRoom(record: StoredRoomRecord): Promise<boolean> {
     const created = await this.cache.createRoom(record);
     if (created) await this.archive.writeRoom(record);

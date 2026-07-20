@@ -155,7 +155,7 @@ export function LobbyPage() {
   return (
     <AppShell>
       <main className="lobby-page">
-        <header className="lobby-heading"><div><div className="eyebrow"><Radio size={14} /> SALA PRIVADA · {repository.kind === "online" ? "ONLINE" : "MODO LOCAL"}</div><h1>{room.name}</h1><p>Todos devem estar prontos antes da partida começar.</p></div><button className="button button--ghost" type="button" onClick={() => void leave()}><LogOut /> Sair</button></header>
+        <header className="lobby-heading"><div><div className="eyebrow"><Radio size={14} /> SALA {room.settings.visibility === "public" ? "PÚBLICA" : "PRIVADA"} · {repository.kind === "online" ? "ONLINE" : "MODO LOCAL"}</div><h1>{room.name}</h1><p>{room.settings.visibility === "public" ? "Esta mesa aparece na lista pública enquanto houver vagas." : "Esta mesa só pode ser acessada pelo link ou código do convite."}</p></div><button className="button button--ghost" type="button" onClick={() => void leave()}><LogOut /> Sair</button></header>
         <div className="lobby-layout">
           <section className="lobby-panel">
             <div className="panel-title"><span><Users /> Exploradores</span><small>{room.players.length}/{room.settings.maxPlayers ?? "∞"}</small></div>

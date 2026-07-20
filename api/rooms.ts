@@ -11,7 +11,10 @@ export default async function handler(request: VercelRequest, response: VercelRe
   const service = await getGameSessionService();
   const result = await handleRoomApi({
     method: request.method ?? "GET",
-    query: { code: queryValue(request.query.code) },
+    query: {
+      code: queryValue(request.query.code),
+      visibility: queryValue(request.query.visibility),
+    },
     headers: { authorization: request.headers.authorization },
     body: request.body as unknown,
   }, service);

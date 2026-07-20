@@ -69,6 +69,9 @@ export function errorResult(error: unknown): ApiResult {
 export async function handleRoomApi(request: ApiRequest, service: GameSessionService): Promise<ApiResult> {
   try {
     if (request.method === "GET") {
+      if (request.query?.visibility === "public") {
+        return { status: 200, body: await service.listPublicRooms() };
+      }
       const code = request.query?.code?.trim().toUpperCase();
       if (!code || code.length !== 6) throw new ApiFault(400, "INVALID_REQUEST", "A six-character room code is required");
       const room = await service.getRoom(code);
