@@ -25,4 +25,27 @@ describe("SettingsPage", () => {
     expect(colorBlindToggle).toHaveAttribute("aria-pressed", "true");
     expect(useAppStore.getState().settings.colorBlind).toBe(true);
   });
+
+  it("explains device-local preferences and restores the visual defaults", async () => {
+    useAppStore.setState({
+      settings: {
+        ...originalSettings,
+        interfaceScale: "large",
+        colorBlind: true,
+        highContrast: true,
+      },
+    });
+    const user = userEvent.setup();
+
+    render(<MemoryRouter><SettingsPage /></MemoryRouter>);
+
+    expect(screen.getByText(/preferências ficam somente neste dispositivo/i)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Restaurar visual padrão/i }));
+    expect(useAppStore.getState().settings).toMatchObject({
+      interfaceScale: "comfortable",
+      colorBlind: false,
+      highContrast: false,
+      lowPerformance: false,
+    });
+  });
 });
