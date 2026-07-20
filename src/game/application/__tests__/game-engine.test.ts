@@ -858,4 +858,57 @@ describe("player trades and development cards", () => {
       edgeIds: ["missing-edge"],
     })).toThrow("Invalid free road position");
   });
+
+  it("resolves every timed phase with a deterministic automatic action", () => {
+    const expiredAt = "2000-01-01T00:00:00.000Z";
+    const now = new Date("2026-07-18T12:00:00.000Z");
+    const expire = (state: GameState) => applyExpiredPhase({ ...state, phaseDeadlineAt: expiredAt }, now, { random: () => 0 });
+
+    const settlement = expire(newGame());
+    expect(settlement.phase).toBe("setupRoad");
+    expect(settlement.board.vertices.some((vertex) => vertex.building?.playerId === "p1")).toBe(true);
+
+    const road = expire(settlement);
+    expect(road.phase).toBe("setupSettlement");
+    expect(road.board.edges.some((edge) => edge.roadPlayerId === "p1")).toBe(true);
+
+    const setup = completeSetup().state;
+    const rolled = expire(setup);
+    expect(rolled.dice).toEqual({ first: 1, second: 1, total: 2 });
+
+    const actions: GameState = {
+      ...setup,
+      phase: "actions",
+      trades: [{
+        id: "timed-trade",
+        proposerId: "p1",
+        offer: { ...emptyResources(), wood: 1 },
+        request: { ...emptyResources(), ore: 1 },
+        targetPlayerIds: ["p2"],
+        status: "open",
+        responderId: null,
+        rejectedPlayerIds: [],
+        createdTurn: setup.turnNumber,
+      }],
+    };
+    const ended = expire(actions);
+    expect(ended.trades[0]?.status).toBe("expired");
+    expect(ended.activePlayerIndex).toBe(1);
+
+    const discard: GameState = {
+      ...setup,
+      phase: "discard",
+      pendingDiscards: { p1: 2 },
+      players: setup.players.map((player) => player.id === "p1"
+        ? { ...player, resources: { ...emptyResources(), wood: 2 } }
+        : player),
+    };
+    const discarded = expire(discard);
+    expect(discarded.pendingDiscards).toEqual({});
+    expect(discarded.players[0]?.resources.wood).toBe(0);
+
+    const robber = expire({ ...setup, phase: "robber" });
+    expect(robber.board.tiles.some((tile) => tile.hasRobber)).toBe(true);
+    expect(robber.phase).toBe("actions");
+  });
 });

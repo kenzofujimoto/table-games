@@ -124,6 +124,28 @@ describe("online game repository", () => {
     expect(new OnlineGameRepository({ storage, fetcher }).getSession(room.code)?.playerId).toBe(profile.id);
   });
 
+  it("joins, ticks and leaves a room while cleaning the departed session", async () => {
+    const storage = new MemoryStorage();
+    const guest = { ...profile, id: "p2", name: "Noah", color: "tide" as const };
+    const joinedRoom = {
+      ...room,
+      players: [...room.players, { profile: guest, ready: false, connected: true, seat: 1, joinedAt: room.createdAt }],
+    };
+    const game = createGame({ id: "game-tick", roomCode: room.code, seed: "tick", players, targetScore: 10 });
+    const leftRoom = { ...joinedRoom, players: joinedRoom.players.filter((player) => player.profile.id !== guest.id) };
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ room: joinedRoom, sessionToken: "g".repeat(32) }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ...game, version: 1 }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify(leftRoom), { status: 200 }));
+    const repository = new OnlineGameRepository({ storage, fetcher });
+
+    await expect(repository.joinRoom(room.code, guest)).resolves.toEqual(joinedRoom);
+    await expect(repository.advanceExpiredGame(game)).resolves.toMatchObject({ version: 1 });
+    await expect(repository.leaveRoom(room.code, guest.id)).resolves.toEqual(leftRoom);
+    expect(repository.getSession(room.code)).toBeNull();
+    await expect(repository.setReady(room.code, guest.id, true)).rejects.toThrow("No session");
+  });
+
   it("submits only commands and expected versions, never a spoofable actor id", async () => {
     const storage = new MemoryStorage();
     const game = createGame({ id: "game-1", roomCode: room.code, seed: "seed", players, targetScore: 10 });
@@ -222,6 +244,7 @@ describe("online game repository", () => {
     captured.listener?.({ type: "roomUpdated", roomCode: room.code });
     captured.listener?.({ type: "gameUpdated", roomCode: room.code, gameId: "game-1", version: 1 });
     captured.listener?.({ type: "connected", roomCode: room.code, playerId: profile.id });
+    captured.listener?.({ type: "presence", roomCode: room.code, players: [] });
     captured.listener?.({ type: "chat", payload: chat });
     await repository.sendChat(room.code, profile, "  Vamos!  ");
     vi.advanceTimersByTime(5_000);
