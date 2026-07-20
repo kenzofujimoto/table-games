@@ -11,6 +11,8 @@ function createConfiguredClient(url: string) {
 type RedisClient = ReturnType<typeof createConfiguredClient>;
 
 const DEFAULT_TTL_SECONDS = 60 * 60 * 24 * 7;
+const PUBLIC_ROOMS_KEY = "auren:rooms:public";
+const PUBLIC_ROOM_LIMIT = 50;
 
 const ROOM_CAS_SCRIPT = `
 local current = redis.call('GET', KEYS[1])
@@ -58,6 +60,13 @@ function presenceKey(roomCode: string): string {
   return `auren:presence:${roomCode.toUpperCase()}`;
 }
 
+function isDiscoverable(record: StoredRoomRecord): boolean {
+  const { room } = record;
+  return room.settings.visibility === "public"
+    && room.status === "lobby"
+    && (room.settings.maxPlayers === null || room.players.length < room.settings.maxPlayers);
+}
+
 export class RedisOnlineStore implements OnlineStore {
   constructor(
     private readonly client: RedisClient,
@@ -69,12 +78,37 @@ export class RedisOnlineStore implements OnlineStore {
     return value ? parseJson(value, `room ${code}`) as StoredRoomRecord : null;
   }
 
+  async listPublicRooms(): Promise<StoredRoomRecord[]> {
+    const codes = await this.client.zRange(PUBLIC_ROOMS_KEY, 0, PUBLIC_ROOM_LIMIT - 1, { REV: true });
+    if (codes.length === 0) return [];
+    const values = await this.client.mGet(codes.map(roomKey));
+    const staleCodes: string[] = [];
+    const records = values.flatMap((value, index) => {
+      if (!value) {
+        staleCodes.push(codes[index]!);
+        return [];
+      }
+      const record = parseJson(value, `room ${codes[index]}`) as StoredRoomRecord;
+      if (!isDiscoverable(record)) {
+        staleCodes.push(codes[index]!);
+        return [];
+      }
+      return [record];
+    });
+    if (staleCodes.length > 0) await this.client.zRem(PUBLIC_ROOMS_KEY, staleCodes);
+    return records;
+  }
+
   async createRoom(record: StoredRoomRecord): Promise<boolean> {
     const result = await this.client.set(roomKey(record.room.code), JSON.stringify(record), {
       EX: this.ttlSeconds,
       NX: true,
     });
-    return result === "OK";
+    const created = result === "OK";
+    if (created && isDiscoverable(record)) {
+      await this.client.zAdd(PUBLIC_ROOMS_KEY, { score: Date.parse(record.room.createdAt), value: record.room.code });
+    }
+    return created;
   }
 
   async compareAndSetRoom(code: string, expectedRevision: number, record: StoredRoomRecord): Promise<boolean> {
@@ -82,7 +116,15 @@ export class RedisOnlineStore implements OnlineStore {
       keys: [roomKey(code)],
       arguments: [String(expectedRevision), JSON.stringify(record), String(this.ttlSeconds)],
     });
-    return Number(result) === 1;
+    const changed = Number(result) === 1;
+    if (changed) {
+      if (isDiscoverable(record)) {
+        await this.client.zAdd(PUBLIC_ROOMS_KEY, { score: Date.parse(record.room.createdAt), value: record.room.code });
+      } else {
+        await this.client.zRem(PUBLIC_ROOMS_KEY, record.room.code);
+      }
+    }
+    return changed;
   }
 
   async getGame(gameId: string): Promise<GameState | null> {

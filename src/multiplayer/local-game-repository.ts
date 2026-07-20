@@ -14,6 +14,7 @@ import {
   type GameRepository,
   type GameRoom,
   type PlayerProfile,
+  type PublicRoomSummary,
   type RepositoryEvent,
 } from "./types";
 
@@ -135,6 +136,24 @@ export class LocalGameRepository implements GameRepository {
 
   async getRoom(code: string): Promise<GameRoom | null> {
     return this.rooms()[normalizeCode(code)] ?? null;
+  }
+
+  async listPublicRooms(): Promise<PublicRoomSummary[]> {
+    return Object.values(this.rooms())
+      .filter((room) => room.settings.visibility === "public"
+        && room.status === "lobby"
+        && (room.settings.maxPlayers === null || room.players.length < room.settings.maxPlayers))
+      .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
+      .map((room) => ({
+        code: room.code,
+        name: room.name,
+        gameKey: room.gameKey,
+        playerCount: room.players.length,
+        maxPlayers: room.settings.maxPlayers,
+        targetScore: room.settings.targetScore,
+        turnSeconds: room.settings.turnSeconds,
+        createdAt: room.createdAt,
+      }));
   }
 
   async joinRoom(code: string, rawProfile: PlayerProfile): Promise<GameRoom> {
