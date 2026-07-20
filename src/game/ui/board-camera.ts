@@ -10,7 +10,6 @@ export interface ViewportSize {
 }
 
 export const BOARD_VIEWBOX: ViewportSize = { width: 780, height: 620 };
-export const BOARD_CONTENT_BOUNDS: ViewportSize = { width: 700, height: 580 };
 export const MIN_BOARD_ZOOM = 0.65;
 export const MAX_BOARD_ZOOM = 1.75;
 
@@ -20,15 +19,7 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 export function clampCamera(camera: BoardCamera): BoardCamera {
   const zoom = clamp(Number.isFinite(camera.zoom) ? camera.zoom : 1, MIN_BOARD_ZOOM, MAX_BOARD_ZOOM);
-  const maximumX = Math.max(0, (BOARD_CONTENT_BOUNDS.width * zoom - BOARD_VIEWBOX.width) / 2);
-  const maximumY = Math.max(0, (BOARD_CONTENT_BOUNDS.height * zoom - BOARD_VIEWBOX.height) / 2);
-  const x = Number.isFinite(camera.x) ? camera.x : 0;
-  const y = Number.isFinite(camera.y) ? camera.y : 0;
-  return {
-    x: maximumX === 0 ? 0 : clamp(x, -maximumX, maximumX),
-    y: maximumY === 0 ? 0 : clamp(y, -maximumY, maximumY),
-    zoom,
-  };
+  return { x: 0, y: 0, zoom };
 }
 
 export function clientDeltaToViewBox(

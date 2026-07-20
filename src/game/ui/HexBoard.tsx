@@ -1,10 +1,10 @@
 import { Anchor, LocateFixed, Minus, Plus } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 
 import type { GameState } from "@/game/application/game-engine";
 import type { BoardPort } from "@/game/domain/types";
 
-import { clampCamera, clientDeltaToViewBox } from "./board-camera";
+import { clampCamera } from "./board-camera";
 import { RESOURCE_META } from "./resource-meta";
 
 interface HexBoardProps {
@@ -55,7 +55,6 @@ function portAriaLabel(port: BoardPort): string {
 
 export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles, onVertex, onEdge, onTile }: HexBoardProps) {
   const [camera, setCamera] = useState({ x: 0, y: 0, zoom: 1 });
-  const drag = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null);
   const playerColors = useMemo(() => Object.fromEntries(state.players.map((player) => [player.id, player.color])), [state.players]);
 
   const zoom = (delta: number) => setCamera((current) => clampCamera({ ...current, zoom: current.zoom + delta }));
@@ -72,28 +71,10 @@ export function HexBoard({ state, validVertexIds, validEdgeIds, selectableTiles,
         className="hex-board"
         viewBox="-390 -310 780 620"
         preserveAspectRatio="xMidYMid meet"
+        data-camera-mode="zoom-only"
         role="img"
         aria-label="Tabuleiro hexagonal interativo"
         onWheel={(event) => { event.preventDefault(); zoom(event.deltaY < 0 ? 0.08 : -0.08); }}
-        onPointerDown={(event) => {
-          if ((event.target as Element).closest("[data-interactive]")) return;
-          drag.current = { x: event.clientX, y: event.clientY, originX: camera.x, originY: camera.y };
-          event.currentTarget.setPointerCapture(event.pointerId);
-        }}
-        onPointerMove={(event) => {
-          if (!drag.current) return;
-          const delta = clientDeltaToViewBox(
-            { x: event.clientX - drag.current.x, y: event.clientY - drag.current.y },
-            event.currentTarget.getBoundingClientRect(),
-          );
-          setCamera((current) => clampCamera({
-            ...current,
-            x: drag.current!.originX + delta.x,
-            y: drag.current!.originY + delta.y,
-          }));
-        }}
-        onPointerUp={() => { drag.current = null; }}
-        onPointerCancel={() => { drag.current = null; }}
       >
         <defs>
           <filter id="tile-shadow"><feDropShadow dx="0" dy="5" stdDeviation="5" floodOpacity=".38" /></filter>
