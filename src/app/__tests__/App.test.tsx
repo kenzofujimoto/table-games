@@ -63,6 +63,25 @@ describe("Auren application shell", () => {
     expect(await screen.findByRole("heading", { name: /Criar nova expedição/i })).toBeInTheDocument();
   });
 
+  it("shows live public lobbies separately from private code entry", async () => {
+    const publicRoom = await repository.createRoom({
+      name: "Mesa aberta",
+      host,
+      settings: { ...settings, visibility: "public" },
+    });
+    useAppStore.setState({
+      profile: { ...host, id: "guest-player", name: "Convidado", color: "tide" },
+      room: null,
+    });
+    window.history.pushState({}, "", "/entrar");
+
+    render(<App />);
+
+    expect(await screen.findByRole("heading", { name: /Salas públicas ao vivo/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: new RegExp(`Entrar em ${publicRoom.name}`, "i") })).toBeInTheDocument();
+    expect(screen.getByText(/Sala privada/i)).toBeInTheDocument();
+  });
+
   it("exposes a concise rules reference as a direct route", () => {
     window.history.pushState({}, "", "/regras");
     render(<App />);

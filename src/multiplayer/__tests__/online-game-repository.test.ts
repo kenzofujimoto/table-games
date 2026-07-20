@@ -75,6 +75,24 @@ afterEach(() => {
 });
 
 describe("online game repository", () => {
+  it("loads the live public-room directory", async () => {
+    const listing = [{
+      code: room.code,
+      name: room.name,
+      gameKey: room.gameKey,
+      playerCount: 1,
+      maxPlayers: 3,
+      targetScore: 10,
+      turnSeconds: 120,
+      createdAt: room.createdAt,
+    }];
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify(listing), { status: 200 }));
+    const repository = new OnlineGameRepository({ storage: new MemoryStorage(), fetcher });
+
+    await expect(repository.listPublicRooms()).resolves.toEqual(listing);
+    expect(fetcher).toHaveBeenCalledWith("/api/rooms?visibility=public", expect.objectContaining({ method: "GET" }));
+  });
+
   it("calls the browser fetch implementation with the global receiver", async () => {
     const fetcher = vi.fn(function (this: unknown): Promise<Response> {
       if (this !== globalThis) throw new TypeError("Illegal invocation");

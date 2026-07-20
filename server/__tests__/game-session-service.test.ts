@@ -58,6 +58,31 @@ function totalResourceSupply(state: GameState): number {
 }
 
 describe("authoritative online game sessions", () => {
+  it("lists only public lobbies that still have open seats", async () => {
+    const store = new InMemoryOnlineStore();
+    const codes = ["PUB234", "PRI234", "FULL23"];
+    let id = 0;
+    const service = new GameSessionService(store, {
+      now: () => new Date("2026-07-18T12:00:00.000Z"),
+      randomCode: () => codes.shift()!,
+      randomId: () => `generated-${++id}`,
+      issueToken: () => `session-token-${++id}`.padEnd(32, "x"),
+    });
+    const publicSettings = { ...settings, visibility: "public" as const };
+    const publicRoom = await service.createRoom({ name: "Mesa pública", host: profiles[0]!, settings: publicSettings });
+    await service.createRoom({ name: "Mesa privada", host: profiles[1]!, settings });
+    const fullRoom = await service.createRoom({
+      name: "Mesa lotada",
+      host: profiles[0]!,
+      settings: { ...publicSettings, maxPlayers: 2 },
+    });
+    await service.joinRoom(fullRoom.room.code, profiles[1]!);
+
+    await expect(service.listPublicRooms()).resolves.toEqual([
+      expect.objectContaining({ code: publicRoom.room.code, name: "Mesa pública", playerCount: 1, maxPlayers: 3 }),
+    ]);
+  });
+
   it("creates private sessions without exposing token hashes in room data", async () => {
     const { service } = createService();
     const host = await service.createRoom({ name: "Mesa", host: profiles[0]!, settings });

@@ -37,6 +37,22 @@ function setup() {
 }
 
 describe("HTTP multiplayer API", () => {
+  it("returns a discoverable list of public lobbies without requiring a room code", async () => {
+    const service = setup();
+    await service.createRoom({
+      name: "Mesa aberta",
+      host: profiles[0]!,
+      settings: { ...settings, visibility: "public" },
+    });
+
+    const result = await handleRoomApi({ method: "GET", query: { visibility: "public" } }, service);
+
+    expect(result).toMatchObject({
+      status: 200,
+      body: [{ code: "ABC234", name: "Mesa aberta", playerCount: 1, maxPlayers: 3 }],
+    });
+  });
+
   it("creates and reads rooms without leaking private session data", async () => {
     const service = setup();
     const created = await handleRoomApi({
