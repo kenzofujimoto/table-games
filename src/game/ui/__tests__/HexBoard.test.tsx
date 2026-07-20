@@ -63,7 +63,7 @@ describe("HexBoard", () => {
     }
   });
 
-  it("keeps an ocean backdrop behind the board during zoom and drag", () => {
+  it("uses a fixed, zoom-only camera with an ocean backdrop", () => {
     const state = createGame({
       id: "game-camera",
       roomCode: "CAMERA",
@@ -84,6 +84,7 @@ describe("HexBoard", () => {
 
     const svg = screen.getByRole("img", { name: /Tabuleiro hexagonal/i });
     expect(svg).toHaveAttribute("preserveAspectRatio", "xMidYMid meet");
+    expect(svg).toHaveAttribute("data-camera-mode", "zoom-only");
     expect(container.querySelector(".board-ocean-backdrop")).toBeInTheDocument();
   });
 });

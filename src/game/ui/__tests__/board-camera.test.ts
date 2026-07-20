@@ -3,9 +3,9 @@ import { describe, expect, it } from "vitest";
 import { clampCamera, clientDeltaToViewBox } from "../board-camera";
 
 describe("board camera", () => {
-  it("keeps a fitted board centered and clamps the supported zoom range", () => {
+  it("keeps the board centered at every supported zoom level", () => {
     expect(clampCamera({ x: 400, y: -300, zoom: 0.2 })).toEqual({ x: 0, y: 0, zoom: 0.65 });
-    expect(clampCamera({ x: 400, y: -300, zoom: 3 })).toEqual({ x: 222.5, y: -197.5, zoom: 1.75 });
+    expect(clampCamera({ x: 400, y: -300, zoom: 3 })).toEqual({ x: 0, y: 0, zoom: 1.75 });
   });
 
   it("converts pointer pixels into stable SVG view-box units", () => {
