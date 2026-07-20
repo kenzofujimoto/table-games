@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -214,11 +214,11 @@ describe("Auren application shell", () => {
     await user.click(screen.getByRole("button", { name: /Fechar opções de construção/i }));
 
     await user.click(screen.getByRole("button", { name: /^Mais$/i }));
-    expect(screen.getByRole("dialog", { name: /Mais ações/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Cartas de desenvolvimento/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Exploradores e histórico/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Encerrar turno/i })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Abandonar partida/i })).toBeInTheDocument();
+    const moreDialog = screen.getByRole("dialog", { name: /Mais ações/i });
+    expect(within(moreDialog).getByRole("button", { name: /Cartas de desenvolvimento/i })).toBeInTheDocument();
+    expect(within(moreDialog).getByRole("button", { name: /Exploradores e histórico/i })).toBeInTheDocument();
+    expect(within(moreDialog).getByRole("button", { name: /Encerrar turno/i })).toBeInTheDocument();
+    expect(within(moreDialog).getByRole("button", { name: /Abandonar partida/i })).toBeInTheDocument();
   });
 
   it("uses an in-game confirmation dialog instead of the browser confirm", async () => {
@@ -241,7 +241,7 @@ describe("Auren application shell", () => {
 
     render(<App />);
     await user.click(await screen.findByRole("button", { name: /^Mais$/i }));
-    await user.click(screen.getByRole("button", { name: /Encerrar turno/i }));
+    await user.click(within(screen.getByRole("dialog", { name: /Mais ações/i })).getByRole("button", { name: /Encerrar turno/i }));
 
     expect(nativeConfirm).not.toHaveBeenCalled();
     expect(screen.getByRole("dialog", { name: /Confirmar fim do turno/i })).toBeInTheDocument();
